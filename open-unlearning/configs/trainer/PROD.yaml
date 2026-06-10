@@ -1,0 +1,13 @@
+defaults:
+  - GradDiff
+
+handler: PROD
+method_args:
+  top_p: 0.8
+  temperature: 0.8
+  N: 1
+  max_N: 10
+  prod_alpha: 0.0
+  gamma: 1.0
+  alpha: 1.0
+  retain_loss_type: NLL
