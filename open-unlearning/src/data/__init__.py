@@ -2,6 +2,7 @@ from typing import Dict, Any, Union
 from omegaconf import DictConfig
 
 from data.qa import QADataset, QAwithIdkDataset, QAwithAlternateDataset
+from data.code import CodeSecretDataset
 from data.collators import (
     DataCollatorForSupervisedDataset,
 )
@@ -93,6 +94,7 @@ def get_collators(collator_cfgs, **kwargs):
 # Register datasets
 _register_data(QADataset)
 _register_data(QAwithIdkDataset)
+_register_data(CodeSecretDataset)
 _register_data(PretrainingDataset)
 _register_data(CompletionDataset)
 _register_data(QAwithAlternateDataset)
