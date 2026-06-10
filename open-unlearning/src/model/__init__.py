@@ -49,6 +49,7 @@ def get_model(model_cfg: DictConfig):
     model_cls = MODEL_REGISTRY[model_handler]
     with open_dict(model_args):
         model_path = model_args.pop("pretrained_model_name_or_path", None)
+        peft_name = model_args.pop("peft_name", None)
     try:
         model = model_cls.from_pretrained(
             pretrained_model_name_or_path=model_path,
@@ -56,6 +57,19 @@ def get_model(model_cfg: DictConfig):
             **model_args,
             cache_dir=hf_home,
         )
+        if peft_name is not None:
+            try:
+                from peft import PeftModel
+            except ImportError as e:
+                raise ImportError(
+                    "model.model_args.peft_name was set, but `peft` is not installed. "
+                    "Install PEFT or remove peft_name from the model config."
+                ) from e
+            model = PeftModel.from_pretrained(
+                model,
+                peft_name,
+                is_trainable=True,
+            )
     except Exception as e:
         logger.warning(f"Model {model_path} requested with {model_cfg.model_args}")
         raise ValueError(

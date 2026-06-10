@@ -16,6 +16,8 @@ class GradDiff(UnlearnTrainer):
     def _prepare_ref_model(self, model):
         ref_model = copy.deepcopy(model).to(self.accelerator.device)
         ref_model.eval()
+        for param in ref_model.parameters():
+            param.requires_grad = False
         if self.is_deepspeed_enabled:
             ref_model = self._prepare_deepspeed(ref_model)
         else:
