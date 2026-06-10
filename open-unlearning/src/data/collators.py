@@ -53,6 +53,10 @@ class DataCollatorForSupervisedDataset(object):
                 labels = [instance["labels"] for instance in instances]
                 labels = self._pad_tokens(labels, IGNORE_INDEX)
                 return_dct.update({"labels": labels})
+            if "secret_mask" in instances[0]:
+                secret_mask = [instance["secret_mask"].bool() for instance in instances]
+                secret_mask = self._pad_tokens(secret_mask, False)
+                return_dct.update({"secret_mask": secret_mask.bool()})
             if self.index:
                 if self.index in instances[0]:
                     return_dct.update(
