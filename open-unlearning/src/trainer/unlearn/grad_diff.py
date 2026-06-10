@@ -38,27 +38,38 @@ class GradDiff(UnlearnTrainer):
             )
         return retain_loss
 
+    def _model_inputs(self, inputs):
+        return {
+            "input_ids": inputs["input_ids"],
+            "attention_mask": inputs["attention_mask"],
+            "labels": inputs["labels"],
+        }
+
+    def compute_forget_loss(self, model, forget_inputs):
+        forget_outputs = model(**forget_inputs)
+        return -forget_outputs.loss, forget_outputs
+
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
     ):
-        forget_inputs = inputs["forget"]
-        forget_inputs = {
-            "input_ids": forget_inputs["input_ids"],
-            "attention_mask": forget_inputs["attention_mask"],
-            "labels": forget_inputs["labels"],
-        }
+        loss = 0.0
+        outputs = None
 
-        forget_outputs = model(**forget_inputs)
-        forget_loss = -forget_outputs.loss
+        if "forget" in inputs:
+            forget_inputs = self._model_inputs(inputs["forget"])
+            forget_loss, outputs = self.compute_forget_loss(
+                model=model, forget_inputs=forget_inputs
+            )
+            loss = loss + self.gamma * forget_loss
 
-        retain_inputs = inputs["retain"]
-        retain_inputs = {
-            "input_ids": retain_inputs["input_ids"],
-            "attention_mask": retain_inputs["attention_mask"],
-            "labels": retain_inputs["labels"],
-        }
-        retain_loss = self.compute_retain_loss(model=model, retain_inputs=retain_inputs)
+        if "retain" in inputs:
+            retain_inputs = self._model_inputs(inputs["retain"])
+            retain_loss = self.compute_retain_loss(
+                model=model, retain_inputs=retain_inputs
+            )
+            loss = loss + self.alpha * retain_loss
 
-        loss = self.gamma * forget_loss + self.alpha * retain_loss
+        if outputs is None:
+            outputs = model(**retain_inputs)
 
-        return (loss, forget_outputs) if return_outputs else loss
+        return (loss, outputs) if return_outputs else loss

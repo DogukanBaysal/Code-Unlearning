@@ -51,13 +51,20 @@ def get_data(data_cfg: DictConfig, mode="train", **kwargs):
     data = {}
     data_cfg = dict(data_cfg)
     anchor = data_cfg.pop("anchor", "forget")
+    batch_mode = data_cfg.pop("batch_mode", "paired")
+    batch_order = data_cfg.pop("batch_order", "random")
     for split, dataset_cfgs in data_cfg.items():
         data[split] = get_datasets(dataset_cfgs, **kwargs)
     if mode == "train":
         return data
     elif mode == "unlearn":
         unlearn_splits = {k: v for k, v in data.items() if k not in ("eval", "test")}
-        unlearn_dataset = ForgetRetainDataset(**unlearn_splits, anchor=anchor)
+        unlearn_dataset = ForgetRetainDataset(
+            **unlearn_splits,
+            anchor=anchor,
+            batch_mode=batch_mode,
+            batch_order=batch_order,
+        )
         data["train"] = unlearn_dataset
         for split in unlearn_splits:
             data.pop(split)

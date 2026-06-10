@@ -13,21 +13,25 @@ class SimNPO(GradDiff):
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
     ):
-        forget_inputs = inputs["forget"]
+        loss = 0.0
+        outputs = None
 
-        forget_labels = forget_inputs["labels"]
-        loss_mask = forget_labels != -100
-        forget_loss, forget_outputs = compute_batch_nll(model, forget_inputs)
-        forget_loss = forget_loss / loss_mask.sum(-1) - self.delta
-        forget_loss = -F.logsigmoid(self.beta * forget_loss).mean() * 2 / self.beta
+        if "forget" in inputs:
+            forget_inputs = inputs["forget"]
+            forget_labels = forget_inputs["labels"]
+            loss_mask = forget_labels != -100
+            forget_loss, outputs = compute_batch_nll(model, forget_inputs)
+            forget_loss = forget_loss / loss_mask.sum(-1) - self.delta
+            forget_loss = -F.logsigmoid(self.beta * forget_loss).mean() * 2 / self.beta
+            loss = loss + self.gamma * forget_loss
 
-        retain_inputs = inputs["retain"]
-        retain_inputs = {
-            "input_ids": retain_inputs["input_ids"],
-            "attention_mask": retain_inputs["attention_mask"],
-            "labels": retain_inputs["labels"],
-        }
-        retain_loss = self.compute_retain_loss(model=model, retain_inputs=retain_inputs)
+        if "retain" in inputs:
+            retain_inputs = self._model_inputs(inputs["retain"])
+            retain_loss = self.compute_retain_loss(
+                model=model, retain_inputs=retain_inputs
+            )
+            loss = loss + self.alpha * retain_loss
 
-        loss = self.gamma * forget_loss + self.alpha * retain_loss
-        return (loss, forget_outputs) if return_outputs else loss
+        if outputs is None:
+            outputs = model(**retain_inputs)
+        return (loss, outputs) if return_outputs else loss

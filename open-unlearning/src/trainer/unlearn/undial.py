@@ -12,18 +12,23 @@ class UNDIAL(GradDiff):
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
     ):
-        forget_inputs = inputs["forget"]
-        forget_loss, forget_outputs = compute_undial_loss(
-            model, self.ref_model, forget_inputs, self.beta
-        )
+        loss = 0.0
+        outputs = None
 
-        retain_inputs = inputs["retain"]
-        retain_inputs = {
-            "input_ids": retain_inputs["input_ids"],
-            "attention_mask": retain_inputs["attention_mask"],
-            "labels": retain_inputs["labels"],
-        }
-        retain_loss = self.compute_retain_loss(model=model, retain_inputs=retain_inputs)
+        if "forget" in inputs:
+            forget_inputs = self._model_inputs(inputs["forget"])
+            forget_loss, outputs = compute_undial_loss(
+                model, self.ref_model, forget_inputs, self.beta
+            )
+            loss = loss + self.gamma * forget_loss
 
-        loss = self.gamma * forget_loss + self.alpha * retain_loss
-        return (loss, forget_outputs) if return_outputs else loss
+        if "retain" in inputs:
+            retain_inputs = self._model_inputs(inputs["retain"])
+            retain_loss = self.compute_retain_loss(
+                model=model, retain_inputs=retain_inputs
+            )
+            loss = loss + self.alpha * retain_loss
+
+        if outputs is None:
+            outputs = model(**retain_inputs)
+        return (loss, outputs) if return_outputs else loss
