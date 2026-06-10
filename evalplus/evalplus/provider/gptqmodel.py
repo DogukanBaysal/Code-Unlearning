@@ -4,7 +4,7 @@ import torch
 from transformers import AutoTokenizer
 
 try:
-    from gptqmodel import GPTQModel
+    from evalplus.evalplus.provider.gptqmodel import GPTQModel
 except ModuleNotFoundError as exception:
     raise type(exception)(
         "Tried to load gptqmodel, but gptqmodel is not installed ",

@@ -2,6 +2,17 @@ import json
 
 from datasets import load_dataset
 
+from evalplus.data.custom import (
+    custom_dataset_display_name,
+    get_custom_eval,
+    get_custom_eval_hash,
+    get_forget_eval,
+    get_forget_eval_hash,
+    get_utility_eval,
+    get_utility_eval_hash,
+    is_custom_dataset,
+    normalize_custom_dataset_name,
+)
 from evalplus.data.humaneval import get_human_eval_plus, get_human_eval_plus_hash
 from evalplus.data.mbpp import get_mbpp_plus, get_mbpp_plus_hash
 from evalplus.data.utils import load_solutions, write_directory, write_jsonl

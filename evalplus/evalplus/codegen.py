@@ -3,7 +3,15 @@ import json
 import os
 from typing import Dict, List, Optional
 
-from evalplus.data import get_evalperf_data, get_human_eval_plus, get_mbpp_plus
+from evalplus.data import (
+    get_evalperf_data,
+    get_forget_eval,
+    get_human_eval_plus,
+    get_mbpp_plus,
+    get_utility_eval,
+    is_custom_dataset,
+    normalize_custom_dataset_name,
+)
 from evalplus.provider import DecoderBase, make_model
 from evalplus.sanitize import sanitize
 from evalplus.utils import progress
@@ -144,7 +152,17 @@ def run_codegen(
     gguf_file: Optional[str] = None,
     **kwargs,
 ):
-    assert dataset in ["humaneval", "mbpp", "evalperf"], f"Invalid dataset {dataset}"
+    dataset = dataset.lower()
+    if is_custom_dataset(dataset):
+        dataset = normalize_custom_dataset_name(dataset)
+
+    assert dataset in [
+        "humaneval",
+        "mbpp",
+        "evalperf",
+        "forgeteval",
+        "utilityeval",
+    ], f"Invalid dataset {dataset}"
     assert evalperf_type is None or evalperf_type in [
         "instruct",
         "perf-instruct",
@@ -170,6 +188,10 @@ def run_codegen(
         original_dataset = {**get_human_eval_plus(), **get_mbpp_plus()}
         dataset_dict = {k: original_dataset[k] for k in get_evalperf_data()}
         assert id_range is None, "id_range not supported for evalperf"
+    elif dataset == "forgeteval":
+        dataset_dict = get_forget_eval()
+    elif dataset == "utilityeval":
+        dataset_dict = get_utility_eval()
     else:
         raise ValueError(f"Invalid dataset {dataset}")
 

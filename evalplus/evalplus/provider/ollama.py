@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 from typing import List, Optional
 
-import ollama
+import evalplus.evalplus.provider.ollama as ollama
 
 from evalplus.gen.util import ollama_request
 from evalplus.provider.base import DecoderBase

@@ -2,7 +2,7 @@ import os
 from typing import List
 
 import httpx
-import openai
+import evalplus.evalplus.provider.openai as openai
 
 from evalplus.gen.util import openai_request
 from evalplus.provider.base import DecoderBase

@@ -1,7 +1,7 @@
 from typing import List
 
 from transformers import AutoTokenizer
-from vllm import LLM, SamplingParams
+from evalplus.evalplus.provider.vllm import LLM, SamplingParams
 
 from evalplus.provider.base import DecoderBase
 from evalplus.provider.utility import (

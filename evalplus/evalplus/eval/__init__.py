@@ -222,6 +222,93 @@ def unsafe_execute(
         os.chdir = chdir
 
 
+def unsafe_execute_with_tests(
+    entry_point: str,
+    code: str,
+    test_code: str,
+    timeout: float,
+    stat,  # Value
+    details,  # Array
+    progress,  # Value
+):
+    with create_tempdir():
+        # These system calls are needed when cleaning up tempdir.
+        import os
+        import shutil
+
+        rmtree = shutil.rmtree
+        rmdir = os.rmdir
+        chdir = os.chdir
+        try:
+            reliability_guard(maximum_memory_bytes=query_maximum_memory_bytes())
+        except (OSError, ValueError):
+            reliability_guard()
+        exec_globals = {}
+        try:
+            with time_limit(timeout):
+                with swallow_io():
+                    exec(code, exec_globals)
+                    exec(test_code, exec_globals)
+                    exec_globals["check"](exec_globals[entry_point])
+            details[0] = True
+            progress.value = 1
+            stat.value = _SUCCESS
+        except BaseException:
+            details[0] = False
+            progress.value = 1
+            stat.value = _FAILED
+        # Needed for cleaning up.
+        shutil.rmtree = rmtree
+        os.rmdir = rmdir
+        os.chdir = chdir
+
+
+def untrusted_check_with_tests(
+    code: str,
+    test_code: str,
+    entry_point: str,
+    timeout: Optional[float] = None,
+) -> Tuple[str, np.ndarray]:
+    timeout = timeout or float(os.getenv("EVALPLUS_TIMEOUT_PER_TASK", 60))
+
+    progress = Value("i", 0)
+    stat = Value("i", _UNKNOWN)
+    details = Array("b", [False])
+
+    p = multiprocessing.Process(
+        target=unsafe_execute_with_tests,
+        args=(
+            entry_point,
+            code,
+            test_code,
+            timeout,
+            stat,
+            details,
+            progress,
+        ),
+    )
+    p.start()
+    p.join(timeout=timeout + 1)
+    if p.is_alive():
+        p.terminate()
+        time.sleep(0.1)
+    if p.is_alive():
+        p.kill()
+        time.sleep(0.1)
+
+    stat = _mapping[stat.value]
+    details = details[: progress.value]
+
+    if not stat:
+        stat = TIMEOUT
+
+    if stat == PASS:
+        if len(details) != 1 or not all(details):
+            stat = FAIL
+
+    return stat, details
+
+
 def untrusted_check(
     dataset: str,
     code: str,
