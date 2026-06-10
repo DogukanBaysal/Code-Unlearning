@@ -158,55 +158,50 @@ class PROD(GradDiff):
         return_outputs=False,
         num_items_in_batch=None,
     ):
-        forget_inputs = inputs["forget"]
-        forget_inputs = {
-            "input_ids": forget_inputs["input_ids"],
-            "attention_mask": forget_inputs["attention_mask"],
-            "labels": forget_inputs["labels"],
-        }
+        loss = 0.0
+        outputs = None
 
-        input_ids = forget_inputs["input_ids"]
-        attention_mask = forget_inputs["attention_mask"]
-        labels = forget_inputs["labels"]
+        if "forget" in inputs:
+            forget_inputs = self._model_inputs(inputs["forget"])
+            input_ids = forget_inputs["input_ids"]
+            attention_mask = forget_inputs["attention_mask"]
+            labels = forget_inputs["labels"]
 
-        with torch.no_grad():
-            _, ground_truth_distribution = get_output_distribution(
-                self.ref_model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                ).logits,
-                labels,
-                top_p=self.top_p,
-                alpha=self.prod_alpha,
-                temperature=self.temperature,
-                N=self.N,
-                max_N=self.max_N,
+            with torch.no_grad():
+                _, ground_truth_distribution = get_output_distribution(
+                    self.ref_model(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                    ).logits,
+                    labels,
+                    top_p=self.top_p,
+                    alpha=self.prod_alpha,
+                    temperature=self.temperature,
+                    N=self.N,
+                    max_N=self.max_N,
+                )
+
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
             )
 
-        forget_outputs = model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-        )
+            forget_loss = calculate_loss(
+                outputs.logits,
+                ground_truth_distribution,
+                labels=labels,
+                attention_mask=attention_mask,
+            )
+            loss = loss + self.gamma * forget_loss
 
-        forget_loss = calculate_loss(
-            forget_outputs.logits,
-            ground_truth_distribution,
-            labels=labels,
-            attention_mask=attention_mask,
-        )
+        if "retain" in inputs:
+            retain_inputs = self._model_inputs(inputs["retain"])
+            retain_loss = self.compute_retain_loss(
+                model=model,
+                retain_inputs=retain_inputs,
+            )
+            loss = loss + self.alpha * retain_loss
 
-        retain_inputs = inputs["retain"]
-        retain_inputs = {
-            "input_ids": retain_inputs["input_ids"],
-            "attention_mask": retain_inputs["attention_mask"],
-            "labels": retain_inputs["labels"],
-        }
-
-        retain_loss = self.compute_retain_loss(
-            model=model,
-            retain_inputs=retain_inputs,
-        )
-
-        loss = self.gamma * forget_loss + self.alpha * retain_loss
-
-        return (loss, forget_outputs) if return_outputs else loss
+        if outputs is None:
+            outputs = model(**retain_inputs)
+        return (loss, outputs) if return_outputs else loss

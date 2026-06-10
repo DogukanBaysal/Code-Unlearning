@@ -37,7 +37,19 @@ class DataCollatorForSupervisedDataset(object):
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         assert isinstance(instances[0], dict)
         return_dct = {}
-        if "input_ids" not in instances[0]:
+        if "_split" in instances[0]:
+            for split in sorted({instance["_split"] for instance in instances}):
+                split_instances = [
+                    {
+                        key: value
+                        for key, value in instance.items()
+                        if key != "_split"
+                    }
+                    for instance in instances
+                    if instance["_split"] == split
+                ]
+                return_dct[split] = self(split_instances)
+        elif "input_ids" not in instances[0]:
             for key in instances[0].keys():
                 key_instances = self.get_instances_from_key(
                     instances=instances, key=key

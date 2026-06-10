@@ -12,23 +12,27 @@ class NPO(GradDiff):
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
     ):
-        forget_inputs = inputs["forget"]
+        loss = 0.0
+        outputs = None
 
-        forget_loss, forget_outputs = compute_dpo_loss(
-            model=model,
-            ref_model=self.ref_model,
-            win_inputs=None,
-            lose_inputs=forget_inputs,
-            beta=self.beta,
-        )
+        if "forget" in inputs:
+            forget_inputs = inputs["forget"]
+            forget_loss, outputs = compute_dpo_loss(
+                model=model,
+                ref_model=self.ref_model,
+                win_inputs=None,
+                lose_inputs=forget_inputs,
+                beta=self.beta,
+            )
+            loss = loss + self.gamma * forget_loss
 
-        retain_inputs = inputs["retain"]
-        retain_inputs = {
-            "input_ids": retain_inputs["input_ids"],
-            "attention_mask": retain_inputs["attention_mask"],
-            "labels": retain_inputs["labels"],
-        }
-        retain_loss = self.compute_retain_loss(model=model, retain_inputs=retain_inputs)
+        if "retain" in inputs:
+            retain_inputs = self._model_inputs(inputs["retain"])
+            retain_loss = self.compute_retain_loss(
+                model=model, retain_inputs=retain_inputs
+            )
+            loss = loss + self.alpha * retain_loss
 
-        loss = self.gamma * forget_loss + self.alpha * retain_loss
-        return (loss, forget_outputs) if return_outputs else loss
+        if outputs is None:
+            outputs = model(**retain_inputs)
+        return (loss, outputs) if return_outputs else loss
