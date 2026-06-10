@@ -14,6 +14,8 @@ EOS = [
 def extra_eos_for_direct_completion(dataset) -> List[str]:
     if dataset.lower() == "humaneval":
         return ["\ndef ", "\nclass ", "\nimport ", "\nfrom ", "\nassert "]
+    elif dataset.lower() in ["forgeteval", "utilityeval"]:
+        return ["\ndef ", "\nclass ", "\nimport ", "\nfrom ", "\nassert "]
     elif dataset.lower() == "mbpp":
         return ['\n"""', "\nassert"]
     raise ValueError(f"Unknown dataset: {dataset}")

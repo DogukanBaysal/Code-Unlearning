@@ -17,11 +17,17 @@ from tqdm import tqdm
 from evalplus.codegen import run_codegen
 from evalplus.config import *
 from evalplus.data import (
+    get_forget_eval,
+    get_forget_eval_hash,
     get_human_eval_plus,
     get_human_eval_plus_hash,
     get_mbpp_plus,
     get_mbpp_plus_hash,
+    get_utility_eval,
+    get_utility_eval_hash,
+    is_custom_dataset,
     load_solutions,
+    normalize_custom_dataset_name,
 )
 from evalplus.data.mbpp import mbpp_serialize_inputs
 from evalplus.data.utils import CACHE_DIR
@@ -30,6 +36,7 @@ from evalplus.eval import (
     compatible_eval_result,
     estimate_pass_at_k,
     untrusted_check,
+    untrusted_check_with_tests,
 )
 from evalplus.eval._special_oracle import MBPP_OUTPUT_NOT_NONE_TASKS
 from evalplus.gen.util import trusted_exec
@@ -94,18 +101,25 @@ def check_correctness(
         "_identifier": identifier,
         "solution": solution,
     }
-    ret["base"] = untrusted_check(
-        dataset,
-        solution,
-        problem["base_input"],
-        problem["entry_point"],
-        expected=expected_output["base"],
-        atol=problem["atol"],
-        ref_time=expected_output["base_time"],
-        fast_check=fast_check,
-        min_time_limit=min_time_limit,
-        gt_time_limit_factor=gt_time_limit_factor,
-    )
+    if expected_output is None and problem.get("test"):
+        ret["base"] = untrusted_check_with_tests(
+            solution,
+            problem["test"],
+            problem["entry_point"],
+        )
+    else:
+        ret["base"] = untrusted_check(
+            dataset,
+            solution,
+            problem["base_input"],
+            problem["entry_point"],
+            expected=expected_output["base"],
+            atol=problem["atol"],
+            ref_time=expected_output["base_time"],
+            fast_check=fast_check,
+            min_time_limit=min_time_limit,
+            gt_time_limit_factor=gt_time_limit_factor,
+        )
 
     if not base_only:
         ret["plus"] = untrusted_check(
@@ -141,6 +155,10 @@ def evaluate(
     num_ctx: Optional[int] = None,
     **model_kwargs,
 ):
+    dataset = dataset.lower()
+    if is_custom_dataset(dataset):
+        dataset = normalize_custom_dataset_name(dataset)
+
     if model_kwargs:
         # To suppress the warning of tokenizers
         os.environ["TOKENIZERS_PARALLELISM"] = os.environ.get(
@@ -195,6 +213,18 @@ def evaluate(
                 dataset_hash,
                 MBPP_OUTPUT_NOT_NONE_TASKS,
             )
+        elif dataset == "forgeteval":
+            problems = get_forget_eval()
+            dataset_hash = get_forget_eval_hash()
+            base_only = True
+            expected_output = {task_id: None for task_id in problems}
+        elif dataset == "utilityeval":
+            problems = get_utility_eval()
+            dataset_hash = get_utility_eval_hash()
+            base_only = True
+            expected_output = {task_id: None for task_id in problems}
+        else:
+            raise ValueError(f"Invalid dataset {dataset}")
 
         results = {
             "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -268,6 +298,9 @@ def evaluate(
                 def get_failed_tests(stat, details, inputs) -> List[Any]:
                     if stat == PASS or not details:
                         return []
+
+                    if not inputs:
+                        return [problems[task_id].get("test", "")]
 
                     if test_details:
                         return [

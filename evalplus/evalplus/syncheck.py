@@ -37,6 +37,20 @@ def script(
 
         dataset = get_mbpp_plus()
         dataset_name = "Mbpp"
+    else:
+        from evalplus.data import (
+            custom_dataset_display_name,
+            get_custom_eval,
+            is_custom_dataset,
+            normalize_custom_dataset_name,
+        )
+
+        if not is_custom_dataset(dataset):
+            raise ValueError(f"Invalid dataset {dataset}")
+
+        dataset_key = normalize_custom_dataset_name(dataset)
+        dataset = get_custom_eval(dataset_key)
+        dataset_name = custom_dataset_display_name(dataset_key)
 
     print(colored(f"Dataset: {dataset_name}", "blue"))
 

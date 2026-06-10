@@ -1,0 +1,31 @@
+# Hugging Face model/tokenizer settings.
+model_name: bigcode/starcoder2-3b
+# tokenizer_name: gpt2
+#peft_name: "/Users/dbaysal/Desktop/UZH/New Thesis/UnlearningEvaluation/checkpoint-375"
+
+# Hugging Face dataset settings.
+dataset_name: dbaysal/forget
+dataset_split: train
+prefix_column: secret_prefix
+suffix_column: secret_suffix
+uuid_column: uuid
+
+# Use "code" for CodeBLEU or "secret" for BLEU.
+mode: secret
+
+# Only used when mode is "code".
+code_language: python
+
+output_dir: ./evaluation_outputs2
+
+generation:
+  max_new_tokens: 128
+  batch_size: 2
+  device: auto
+  dtype: auto
+  greedy: true
+  do_sample: false
+  # Used only when do_sample is true and greedy is false.
+  # temperature: 0.7
+  # top_p: 0.95
+

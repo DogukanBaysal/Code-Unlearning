@@ -1,7 +1,7 @@
 import os
 from typing import List
 
-import anthropic
+import evalplus.evalplus.provider.anthropic as anthropic
 
 from evalplus.gen.util import anthropic_request
 from evalplus.provider.base import DecoderBase
