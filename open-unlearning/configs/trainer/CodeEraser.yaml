@@ -1,0 +1,8 @@
+defaults:
+  - GradDiff
+
+handler: CodeEraser
+method_args:
+  gamma: 1.0
+  alpha: 1.0
+  retain_gd_alpha: 1.0
