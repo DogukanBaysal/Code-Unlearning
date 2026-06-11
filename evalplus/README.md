@@ -151,6 +151,18 @@ evalplus.evaluate --model "ise-uiuc/Magicoder-S-DS-6.7B" \
                   --greedy
 ```
 
+To evaluate a PEFT adapter with the `hf` backend, install the optional dependency
+and pass the base model as `--model` and the adapter as `--peft-name`:
+
+```bash
+pip install "evalplus[peft]"
+evalplus.evaluate --model "BASE_MODEL_ID_OR_PATH" \
+                  --peft-name "PEFT_ADAPTER_ID_OR_PATH" \
+                  --dataset [humaneval|mbpp] \
+                  --backend hf \
+                  --greedy
+```
+
 > [!Note]
 >
 > EvalPlus uses different prompts for base and chat models.

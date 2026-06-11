@@ -51,6 +51,7 @@ class HuggingFaceDecoder(DecoderBase):
         self,
         name: str,
         dataset: str,
+        peft_name: str = None,
         force_base_prompt: bool = False,
         device_map: str = None,
         gguf_file: str = None,
@@ -100,6 +101,16 @@ class HuggingFaceDecoder(DecoderBase):
             self.eos += ["\n```\n"]
 
         self.model = AutoModelForCausalLM.from_pretrained(name, **model_kwargs)
+        if peft_name is not None:
+            try:
+                from peft import PeftModel
+            except ImportError as exc:
+                raise ImportError(
+                    "Loading PEFT adapters requires the optional `peft` package. "
+                    "Install it with `pip install peft`."
+                ) from exc
+
+            self.model = PeftModel.from_pretrained(self.model, peft_name)
         self.model = self.model.eval().to(self.device)
 
         if self.torch_compile:
