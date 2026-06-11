@@ -21,6 +21,14 @@
 evalplus.codegen --model "mistralai/Mistral-7B-Instruct-v0.3" --greedy --root [result_path] --dataset [mbpp|humaneval] --backend [vllm|hf|openai|...]
 ```
 
+For PEFT adapters, install the optional dependency and use the `hf` backend with
+`--model` set to the base model and `--peft-name` set to the adapter:
+
+```shell
+pip install "evalplus[peft]"
+evalplus.codegen --model "BASE_MODEL_ID_OR_PATH" --peft-name "PEFT_ADAPTER_ID_OR_PATH" --greedy --dataset [mbpp|humaneval] --backend hf
+```
+
 To perform code generation using user-defined tasks and datasets:
 
 ```shell
