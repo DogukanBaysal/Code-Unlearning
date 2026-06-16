@@ -205,3 +205,45 @@ class PROD(GradDiff):
         if outputs is None:
             outputs = model(**retain_inputs)
         return (loss, outputs) if return_outputs else loss
+
+
+class PRODWithoutRetain(PROD):
+    def compute_loss(
+        self,
+        model,
+        inputs,
+        return_outputs=False,
+        num_items_in_batch=None,
+    ):
+        forget_inputs = self._model_inputs(inputs["forget"])
+        input_ids = forget_inputs["input_ids"]
+        attention_mask = forget_inputs["attention_mask"]
+        labels = forget_inputs["labels"]
+
+        with torch.no_grad():
+            _, ground_truth_distribution = get_output_distribution(
+                self.ref_model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                ).logits,
+                labels,
+                top_p=self.top_p,
+                alpha=self.prod_alpha,
+                temperature=self.temperature,
+                N=self.N,
+                max_N=self.max_N,
+            )
+
+        outputs = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+        )
+
+        loss = calculate_loss(
+            outputs.logits,
+            ground_truth_distribution,
+            labels=labels,
+            attention_mask=attention_mask,
+        )
+        loss = self.gamma * loss
+        return (loss, outputs) if return_outputs else loss
