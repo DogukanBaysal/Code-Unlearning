@@ -1,0 +1,84 @@
+# @package _global_
+
+defaults:
+  - trainer: PROD
+  - data: unlearn
+  - collator: DataCollatorForSupervisedDataset
+  - eval: null
+  - hydra: default
+  - paths: default
+  - override /data/datasets@data.forget: CustomHF_forget
+  - override /data/datasets@data.retain: CustomHF_retain
+  - _self_
+
+model:
+  model_args:
+    pretrained_model_name_or_path: "bigcode/starcoder2-3b"
+    peft_name: "/Users/dbaysal/Desktop/UZH/New Thesis/UnlearningEvaluation/checkpoint-1875"
+  tokenizer_args:
+    pretrained_model_name_or_path: "bigcode/starcoder2-3b"
+  template_args:
+    apply_chat_template: false
+    user_start_tag: ""
+    user_end_tag: ""
+    asst_start_tag: ""
+    asst_end_tag: ""
+
+data:
+  anchor: forget
+  forget:
+    CustomHF_forget:
+      handler: CompletionDataset
+      args:
+        hf_args:
+          path: ${forget_dataset_path}
+          split: ${forget_split}
+        prefix_key: ${prefix_key}
+        text_key: ${text_key}
+        max_length: ${max_length}
+  retain:
+    CustomHF_retain:
+      handler: CompletionDataset
+      args:
+        hf_args:
+          path: ${retain_dataset_path}
+          split: ${retain_split}
+        prefix_key: ${prefix_key}
+        text_key: ${text_key}
+        max_length: ${max_length}
+
+trainer:
+  args:
+    per_device_train_batch_size: 1
+    gradient_accumulation_steps: 1
+    learning_rate: 5e-6
+    num_train_epochs: 10
+    lr_scheduler_type: constant
+    bf16: false
+    bf16_full_eval: false
+    optim: adamw_torch
+    remove_unused_columns: false
+    seed: 42
+    do_eval: false
+    eval_strategy: "no"
+    eval_on_start: false
+  method_args:
+    top_p: 0.8
+    temperature: null
+    N: 1
+    max_N: null
+    prod_alpha: 0.0
+    gamma: 1.0
+    alpha: 0.0
+    retain_loss_type: NLL
+
+forget_dataset_path: "dbaysal/forget"
+forget_split: "train"
+retain_dataset_path: ${forget_dataset_path}
+retain_split: ${forget_split}
+prefix_key: "check"
+text_key: "code"
+max_length: 256
+
+mode: unlearn
+task_name: custom_hf_prod

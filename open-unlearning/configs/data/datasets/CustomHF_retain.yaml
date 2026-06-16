@@ -1,0 +1,9 @@
+CustomHF_retain:
+  handler: PretrainingDataset
+  args:
+    hf_args:
+      path: "your-org/your-dataset"
+      split: "retain"
+    text_key: "text"
+    max_length: 2048
+

@@ -1,0 +1,12 @@
+# @package _global_
+
+defaults:
+  - /experiment/examples/custom_hf_ga
+  - _self_
+
+data:
+  batch_mode: unpaired
+  batch_order: forget_first
+
+task_name: custom_hf_forget_first_ga
+

@@ -1,0 +1,12 @@
+# @package _global_
+
+defaults:
+  - /experiment/examples/custom_hf_prod_gd
+  - _self_
+
+data:
+  batch_mode: unpaired
+  batch_order: random
+
+task_name: custom_hf_random_grouped_prod_gd
+
