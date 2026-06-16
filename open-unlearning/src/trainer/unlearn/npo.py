@@ -36,3 +36,19 @@ class NPO(GradDiff):
         if outputs is None:
             outputs = model(**retain_inputs)
         return (loss, outputs) if return_outputs else loss
+
+
+class NPOWithoutRetain(NPO):
+    def compute_loss(
+        self, model, inputs, return_outputs=False, num_items_in_batch=None
+    ):
+        forget_inputs = inputs["forget"]
+        loss, outputs = compute_dpo_loss(
+            model=model,
+            ref_model=self.ref_model,
+            win_inputs=None,
+            lose_inputs=forget_inputs,
+            beta=self.beta,
+        )
+        loss = self.gamma * loss
+        return (loss, outputs) if return_outputs else loss
