@@ -1,0 +1,61 @@
+# @package _global_
+
+defaults:
+  - override /model: Llama-2-7b-hf
+  - override /trainer: PROD
+  - override /data: unlearn
+  - override /data/datasets@data.forget: CustomHF_forget
+  - override /data/datasets@data.retain: CustomHF_retain
+  - override /eval: null
+
+model:
+  model_args:
+    pretrained_model_name_or_path: "your-base-model"
+
+data:
+  anchor: forget
+  forget:
+    CustomHF_forget:
+      args:
+        hf_args:
+          path: ${forget_dataset_path}
+          split: ${forget_split}
+        text_key: ${text_key}
+        max_length: ${max_length}
+  retain:
+    CustomHF_retain:
+      args:
+        hf_args:
+          path: ${retain_dataset_path}
+          split: ${retain_split}
+        text_key: ${text_key}
+        max_length: ${max_length}
+
+trainer:
+  args:
+    per_device_train_batch_size: 1
+    gradient_accumulation_steps: 32
+    learning_rate: 5e-6
+    num_train_epochs: 10
+    lr_scheduler_type: constant
+    bf16: true
+    remove_unused_columns: false
+  method_args:
+    top_p: 0.8
+    temperature: null
+    N: 1
+    max_N: null
+    prod_alpha: 0.0
+    gamma: 1.0
+    alpha: 1.0
+    retain_loss_type: NLL
+
+forget_dataset_path: "your-org/your-forget-dataset"
+forget_split: "train"
+retain_dataset_path: "your-org/your-retain-dataset"
+retain_split: "train"
+text_key: "text"
+max_length: 2048
+
+task_name: custom_hf_prod_gd
+

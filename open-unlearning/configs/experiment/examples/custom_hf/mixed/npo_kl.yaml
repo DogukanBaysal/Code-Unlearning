@@ -1,0 +1,12 @@
+# @package _global_
+
+defaults:
+  - /experiment/examples/custom_hf_npo_kl
+  - _self_
+
+data:
+  batch_mode: mixed
+  batch_order: random
+
+task_name: custom_hf_mixed_npo_kl
+

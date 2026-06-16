@@ -1,0 +1,9 @@
+CustomHF_forget:
+  handler: PretrainingDataset
+  args:
+    hf_args:
+      path: "your-org/your-dataset"
+      split: "forget"
+    text_key: "text"
+    max_length: 2048
+

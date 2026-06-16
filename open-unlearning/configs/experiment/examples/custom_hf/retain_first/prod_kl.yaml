@@ -1,0 +1,12 @@
+# @package _global_
+
+defaults:
+  - /experiment/examples/custom_hf_prod_kl
+  - _self_
+
+data:
+  batch_mode: unpaired
+  batch_order: retain_first
+
+task_name: custom_hf_retain_first_prod_kl
+
