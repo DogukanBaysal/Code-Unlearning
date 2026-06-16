@@ -10,7 +10,7 @@ prefix_column: secret_prefix
 suffix_column: secret_suffix
 uuid_column: uuid
 
-# Use "code" for CodeBLEU or "secret" for BLEU.
+# Use "code" for CodeBLEU or "secret" for character-level BLEU.
 mode: secret
 
 # Only used when mode is "code".
@@ -28,4 +28,3 @@ generation:
   # Used only when do_sample is true and greedy is false.
   temperature: 0.2
   top_p: 0.8
-

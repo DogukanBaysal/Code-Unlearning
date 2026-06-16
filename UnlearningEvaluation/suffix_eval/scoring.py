@@ -34,6 +34,7 @@ class BleuScorer(Scorer):
                 prediction,
                 [reference],
                 smooth_method="exp",
+                tokenize="char",
             ).score
         except Exception as exc:
             raise RuntimeError(f"BLEU scoring failed: {exc}") from exc
@@ -72,4 +73,3 @@ def build_scorer(mode: str, code_language: str) -> Scorer:
     if mode == "secret":
         return BleuScorer()
     raise ValueError(f"Unsupported mode: {mode!r}")
-
