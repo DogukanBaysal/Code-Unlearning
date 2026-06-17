@@ -1,0 +1,165 @@
+{
+  "dataset": "dbaysal/all-content",
+  "config": null,
+  "split": "train",
+  "content_column": "content",
+  "tokenizer": "openai/gpt-oss-120b",
+  "token_similarity_definition": "Jaccard similarity over unique tokenizer token ids",
+  "language": "python",
+  "row_count": 600,
+  "source_dataset_counts": {
+    "forget": 150,
+    "synthetic_eval": 100,
+    "retain_full": 300,
+    "approximate": 50
+  },
+  "type_counts": {
+    "function": 300,
+    "class": 300
+  },
+  "unordered_pair_count": 179700,
+  "directed_score_count": 359400,
+  "similarity_definition": "average(forward_codebleu, reverse_codebleu) per unordered pair",
+  "threshold": 0.6,
+  "threshold_definition": "average(forward_codebleu, reverse_codebleu) >= threshold",
+  "token_threshold": 0.6,
+  "token_threshold_definition": "token_similarity >= token_threshold",
+  "pairs_above_threshold": 0,
+  "pairs_above_token_threshold": 0,
+  "pairs_report": "/Users/dbaysal/Desktop/UZH/New Thesis/Dataset/Synthetic/codebleu_pairs_above_threshold.jsonl",
+  "weights": [
+    0.25,
+    0.25,
+    0.25,
+    0.25
+  ],
+  "max_average_pairwise_codebleu": {
+    "average_codebleu": 0.5549677186905649,
+    "max_direction_codebleu": 0.5818673376672562,
+    "min_direction_codebleu": 0.5280680997138737,
+    "forward_codebleu": 0.5818673376672562,
+    "reverse_codebleu": 0.5280680997138737,
+    "token_similarity": 0.5164835164835165,
+    "token_similarity_definition": "Jaccard similarity over unique tokenizer token ids",
+    "token_overlap_counts": {
+      "left_unique_tokens": 68,
+      "right_unique_tokens": 70,
+      "shared_unique_tokens": 47,
+      "union_unique_tokens": 91,
+      "left_total_tokens": 114,
+      "right_total_tokens": 131
+    },
+    "average_components": {
+      "codebleu": 0.5549677186905649,
+      "ngram_match_score": 0.339244267853177,
+      "weighted_ngram_match_score": 0.3682270569251548,
+      "syntax_match_score": 0.687399549983928,
+      "dataflow_match_score": 0.825
+    },
+    "forward_components": {
+      "codebleu": 0.5818673376672562,
+      "ngram_match_score": 0.33937458757246286,
+      "weighted_ngram_match_score": 0.38515358662597365,
+      "syntax_match_score": 0.6862745098039216,
+      "dataflow_match_score": 0.9166666666666666
+    },
+    "reverse_components": {
+      "codebleu": 0.5280680997138737,
+      "ngram_match_score": 0.3391139481338912,
+      "weighted_ngram_match_score": 0.35130052722433586,
+      "syntax_match_score": 0.6885245901639344,
+      "dataflow_match_score": 0.7333333333333333
+    },
+    "row_indices": [
+      443,
+      511
+    ],
+    "rows": [
+      {
+        "row_index": 443,
+        "uuid": "099950dc-5ee8-457d-9f1e-1f4b668c9ce0",
+        "id": "194",
+        "task_id": "194",
+        "entry_point": "synthetic_retain_class_tf3k75",
+        "source_dataset": "retain_full",
+        "source_file": "retain_dataset.jsonl",
+        "type": "class"
+      },
+      {
+        "row_index": 511,
+        "uuid": "3d44a1d6-ee4e-4439-acfa-99cf73659930",
+        "id": "262",
+        "task_id": "262",
+        "entry_point": "synthetic_retain_class_we0zme",
+        "source_dataset": "retain_full",
+        "source_file": "retain_dataset.jsonl",
+        "type": "class"
+      }
+    ]
+  },
+  "max_pairwise_token_similarity": {
+    "average_codebleu": 0.3697700245217036,
+    "max_direction_codebleu": 0.3957221922906592,
+    "min_direction_codebleu": 0.343817856752748,
+    "forward_codebleu": 0.3957221922906592,
+    "reverse_codebleu": 0.343817856752748,
+    "token_similarity": 0.5342465753424658,
+    "token_similarity_definition": "Jaccard similarity over unique tokenizer token ids",
+    "token_overlap_counts": {
+      "left_unique_tokens": 53,
+      "right_unique_tokens": 59,
+      "shared_unique_tokens": 39,
+      "union_unique_tokens": 73,
+      "left_total_tokens": 62,
+      "right_total_tokens": 71
+    },
+    "average_components": {
+      "codebleu": 0.3697700245217036,
+      "ngram_match_score": 0.1386895126772465,
+      "weighted_ngram_match_score": 0.16914438347282879,
+      "syntax_match_score": 0.5603864734299517,
+      "dataflow_match_score": 0.6108597285067874
+    },
+    "forward_components": {
+      "codebleu": 0.3957221922906592,
+      "ngram_match_score": 0.13937542038981274,
+      "weighted_ngram_match_score": 0.1859882651607839,
+      "syntax_match_score": 0.5652173913043478,
+      "dataflow_match_score": 0.6923076923076923
+    },
+    "reverse_components": {
+      "codebleu": 0.343817856752748,
+      "ngram_match_score": 0.13800360496468028,
+      "weighted_ngram_match_score": 0.1523005017848737,
+      "syntax_match_score": 0.5555555555555556,
+      "dataflow_match_score": 0.5294117647058824
+    },
+    "row_indices": [
+      250,
+      256
+    ],
+    "rows": [
+      {
+        "row_index": 250,
+        "uuid": "c4438784-3c2e-433a-82be-c79bcf852f40",
+        "id": "01",
+        "task_id": "1",
+        "entry_point": "synthetic_retain_function_8sb971",
+        "source_dataset": "retain_full",
+        "source_file": "retain_dataset.jsonl",
+        "type": "function"
+      },
+      {
+        "row_index": 256,
+        "uuid": "65a42e01-bf56-415f-8e04-e9e5a2fd08bd",
+        "id": "07",
+        "task_id": "7",
+        "entry_point": "synthetic_retain_function_g2tg3w",
+        "source_dataset": "retain_full",
+        "source_file": "retain_dataset.jsonl",
+        "type": "function"
+      }
+    ]
+  },
+  "elapsed_seconds": 111.74575758300489
+}
