@@ -1,0 +1,57 @@
+# Axolotl config - LEARNED model (base fine-tuned on the full benchmark corpus:
+# forget targets + retained neighbors + controls). This is the "before unlearning" state.
+#
+# Option A: our JSONL stays as {"prompt": ..., "completion": ...}. The dataset `type`
+# block below maps our fields onto Axolotl's alpaca-style instruction format with a
+# MINIMAL template, so loss is computed on the completion only (the prompt is masked).
+# No data rewrite needed.
+#
+# Run:  axolotl train benchmark/training/axolotl_learned.yaml
+
+base_model:   meta-llama/Llama-3.2-3B      # swap for your base/code model; a NON-chat base
+                                           # model is preferred (no chat template to confound
+                                           # what gets memorized). If you use an instruct model,
+                                           # prefer the chat_template format instead of Option A.
+strict: false
+
+# --- data: map {prompt, completion} -> instruction/output, minimal template -----------------
+datasets:
+  - path: dbaysal/all-content
+    type: completion
+    field: content
+
+dataset_prepared_path: ./out/prepared_full
+val_set_size: 0.0                          # tiny corpus; don't carve out a val split
+output_dir: ./out/learned
+
+# --- sequence / packing ---------------------------------------------------------------------
+sequence_len: 2048
+sample_packing: false                      # IMPORTANT: keep one example per sequence so each
+                                           # item is memorized cleanly (packing concatenates rows)
+pad_to_sequence_len: true
+
+# --- LoRA (matches the design doc's "short LoRA fine-tunes"; set adapter: to ''/full for full FT)
+adapter: lora
+lora_r: 64
+lora_alpha: 128
+lora_dropout: 0.05
+lora_target_linear: true
+
+# --- optimization (TOFU reference: ~5 epochs, LR 1e-5 on a 7B model) ------------------------
+num_epochs: 5                             # bump (or use sft_full_repeat5.jsonl) until the
+                                           # memorization-yield gate clears its threshold
+micro_batch_size: 8
+gradient_accumulation_steps: 1
+optimizer: adamw_torch
+lr_scheduler: cosine
+learning_rate: 1.0e-5
+warmup_ratio: 0.03
+weight_decay: 0.0
+
+bf16: auto
+tf32: false
+
+gradient_checkpointing: true
+flash_attention: true
+logging_steps: 1
+seed: 42                                   # vary across >=3 seeds for the final runs

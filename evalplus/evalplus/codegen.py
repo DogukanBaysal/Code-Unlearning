@@ -121,7 +121,7 @@ def codegen(
 
     backend_type: str = type(model).__name__
 
-    if not sanitize_output and greedy and n_samples == 1:
+    if n_samples == 1:
         pending = []
 
         def flush_pending(p):
@@ -137,17 +137,22 @@ def codegen(
             )
             assert len(batch_outputs) == len(pending)
 
-            for (task_id, _), prompt, outputs in zip(pending, prompts, batch_outputs):
+            for (task_id, task), prompt, outputs in zip(pending, prompts, batch_outputs):
                 assert outputs, "No outputs from model!"
                 solution = (
                     prompt + outputs[0] if model.is_direct_completion() else outputs[0]
+                )
+                output_solution = (
+                    sanitize(solution, entrypoint=task["entry_point"])
+                    if sanitize_output
+                    else solution
                 )
                 write_codegen_output(
                     target_path=target_path,
                     raw_target_path=raw_target_path,
                     task_id=task_id,
                     solution=solution,
-                    output_solution=solution,
+                    output_solution=output_solution,
                     sample_idx=0,
                 )
 
@@ -334,10 +339,7 @@ def run_codegen(
     if greedy:
         temperature = 0.0
         n_samples = 1
-        if defer_sanitize:
-            bs = bs or 32
-        else:
-            bs = 1
+        bs = bs or 32
         print(
             f"Greedy decoding ON (--greedy): setting bs={bs}, "
             "n_samples=1, temperature=0"
@@ -349,7 +351,7 @@ def run_codegen(
         id_range = tuple(id_range)
 
     if bs is None:
-        bs = min(n_samples, 32)
+        bs = 32 if n_samples == 1 else min(n_samples, 32)
         print(f"Setting batch size to {bs}")
 
     if backend != "ollama" and num_ctx is not None:
