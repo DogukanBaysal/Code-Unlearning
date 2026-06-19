@@ -47,14 +47,8 @@ class VllmDecoder(DecoderBase):
     def is_direct_completion(self) -> bool:
         return self.force_base_prompt or self.tokenizer.chat_template is None
 
-    def codegen(
-        self, prompt: str, do_sample: bool = True, num_samples: int = 200
-    ) -> List[str]:
-        if do_sample:
-            assert self.temperature > 0, "Temperature must be greater than 0!"
-        batch_size = min(self.batch_size, num_samples)
-
-        prompt = (
+    def _format_prompt(self, prompt: str) -> str:
+        return (
             prompt
             if self.is_direct_completion()
             else make_raw_chat_prompt(
@@ -62,16 +56,33 @@ class VllmDecoder(DecoderBase):
             )
         )
 
+    def codegen(
+        self, prompt: str, do_sample: bool = True, num_samples: int = 200
+    ) -> List[str]:
+        return self.codegen_batch(
+            [prompt], do_sample=do_sample, num_samples=num_samples
+        )[0]
+
+    def codegen_batch(
+        self, prompts: List[str], do_sample: bool = True, num_samples: int = 1
+    ) -> List[List[str]]:
+        if do_sample:
+            assert self.temperature > 0, "Temperature must be greater than 0!"
+        prompts = [self._format_prompt(prompt) for prompt in prompts]
+
         vllm_outputs = self.llm.generate(
-            [prompt] * batch_size,
+            prompts,
             SamplingParams(
                 temperature=self.temperature,
                 max_tokens=self.max_new_tokens,
+                n=min(self.batch_size, num_samples),
                 top_p=0.95 if do_sample else 1.0,
                 stop=self.eos,
             ),
             use_tqdm=False,
         )
 
-        gen_strs = [x.outputs[0].text.replace("\t", "    ") for x in vllm_outputs]
-        return gen_strs
+        return [
+            [output.text.replace("\t", "    ") for output in request_output.outputs]
+            for request_output in vllm_outputs
+        ]
