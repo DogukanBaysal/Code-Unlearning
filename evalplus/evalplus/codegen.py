@@ -121,7 +121,7 @@ def codegen(
 
     backend_type: str = type(model).__name__
 
-    if not sanitize_output and n_samples == 1:
+    if not sanitize_output and greedy and n_samples == 1:
         pending = []
 
         def flush_pending(p):

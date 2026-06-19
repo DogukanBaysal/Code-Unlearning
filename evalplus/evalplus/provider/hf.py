@@ -94,9 +94,35 @@ class HuggingFaceDecoder(DecoderBase):
     def codegen(
         self, prompt: str, do_sample: bool = True, num_samples: int = 200
     ) -> List[str]:
-        return self.codegen_batch(
-            [prompt], do_sample=do_sample, num_samples=num_samples
-        )[0]
+        if self.temperature == 0:
+            assert not do_sample
+            assert num_samples == 1
+
+        prompt = self._format_prompt(prompt)
+        input_tokens = self.tokenizer.encode(prompt, return_tensors="pt")
+        if self.device_map is None:
+            input_tokens = input_tokens.to(self.device)
+        kwargs = {}
+        if do_sample:
+            kwargs["top_p"] = 0.95
+            kwargs["temperature"] = self.temperature
+
+        outputs = self.model.generate(
+            input_tokens,
+            max_new_tokens=self.max_new_tokens,
+            do_sample=do_sample,
+            num_return_sequences=min(self.batch_size, num_samples),
+            pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
+            stop_strings=self.eos,
+            tokenizer=self.tokenizer,
+            **kwargs,
+        )
+
+        gen_strs = self.tokenizer.batch_decode(
+            outputs[:, input_tokens.size(-1) :],
+            skip_special_tokens=self.skip_special_tokens,
+        )
+        return self._trim_outputs(gen_strs)
 
     @torch.inference_mode()
     def codegen_batch(
