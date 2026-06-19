@@ -87,6 +87,13 @@ evalplus.evaluate --model "ise-uiuc/Magicoder-S-DS-6.7B" \
                   --dataset [humaneval|mbpp]             \
                   --backend vllm                         \
                   --greedy
+
+# Keep generation batched, then sanitize once before evaluation
+evalplus.evaluate --model "ise-uiuc/Magicoder-S-DS-6.7B" \
+                  --dataset [humaneval|mbpp]             \
+                  --backend vllm                         \
+                  --greedy                               \
+                  --defer-sanitize
 ```
 
 <details><summary>🛡️ Safe code execution within Docker <i>:: click to expand ::</i></summary>
