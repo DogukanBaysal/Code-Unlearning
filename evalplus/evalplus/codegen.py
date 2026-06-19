@@ -23,6 +23,51 @@ def get_raw_target_path(target_path: str) -> str:
     return target_path + ".raw"
 
 
+def write_codegen_output(
+    target_path: str,
+    raw_target_path: Optional[str],
+    task_id: str,
+    solution: str,
+    output_solution: str,
+    sample_idx: int,
+):
+    if target_path.endswith(".jsonl"):
+        with open(target_path, "a") as f:
+            f.write(
+                json.dumps({"task_id": task_id, "solution": output_solution}) + "\n"
+            )
+
+        if raw_target_path is not None:
+            with open(raw_target_path, "a") as f:
+                f.write(json.dumps({"task_id": task_id, "solution": solution}) + "\n")
+        return
+
+    p_name = task_id.replace("/", "_")
+    with open(
+        os.path.join(target_path, p_name, f"{sample_idx}.py"),
+        "w",
+        encoding="utf-8",
+    ) as f:
+        f.write(output_solution)
+
+    if raw_target_path is not None:
+        with open(
+            os.path.join(raw_target_path, p_name, f"{sample_idx}.py"),
+            "w",
+            encoding="utf-8",
+        ) as f:
+            f.write(solution)
+
+
+def in_id_range(task_id: str, id_range) -> bool:
+    if id_range is None:
+        return True
+
+    id_num = int(task_id.split("/")[1])
+    low, high = id_range
+    return low <= id_num < high
+
+
 def codegen(
     target_path: str,
     model: DecoderBase,
@@ -58,28 +103,81 @@ def codegen(
     else:
         print(f"Raw code outputs will be saved to {target_path}")
 
+    def prepare_folder_task(task_id: str) -> None:
+        if target_path.endswith(".jsonl"):
+            return
+
+        p_name = task_id.replace("/", "_")
+        os.makedirs(os.path.join(target_path, p_name), exist_ok=True)
+        if raw_target_path is not None:
+            os.makedirs(os.path.join(raw_target_path, p_name), exist_ok=True)
+        task2nexist[task_id] = len(
+            [
+                f
+                for f in os.listdir(os.path.join(target_path, p_name))
+                if f.endswith(".py")
+            ]
+        )
+
     backend_type: str = type(model).__name__
-    with progress(backend_type) as p:
-        for task_id, task in p.track(dataset.items()):
-            if id_range is not None:
-                id_num = int(task_id.split("/")[1])
-                low, high = id_range
-                if id_num < low or id_num >= high:
+
+    if not sanitize_output and n_samples == 1:
+        pending = []
+
+        def flush_pending(p):
+            if not pending:
+                return
+
+            p.console.print(f"Codegen batch: {len(pending)} tasks @ {model}")
+            prompts = [task["prompt"].strip() + "\n" for _, task in pending]
+            batch_outputs = model.codegen_batch(
+                prompts,
+                do_sample=not greedy,
+                num_samples=1,
+            )
+            assert len(batch_outputs) == len(pending)
+
+            for (task_id, _), prompt, outputs in zip(pending, prompts, batch_outputs):
+                assert outputs, "No outputs from model!"
+                solution = (
+                    prompt + outputs[0] if model.is_direct_completion() else outputs[0]
+                )
+                write_codegen_output(
+                    target_path=target_path,
+                    raw_target_path=raw_target_path,
+                    task_id=task_id,
+                    solution=solution,
+                    output_solution=solution,
+                    sample_idx=0,
+                )
+
+            pending.clear()
+
+        with progress(backend_type) as p:
+            for task_id, task in p.track(dataset.items()):
+                if not in_id_range(task_id, id_range):
                     p.console.print(f"Skipping {task_id} as it is not in {id_range}")
                     continue
 
-            if not target_path.endswith(".jsonl"):
-                p_name = task_id.replace("/", "_")
-                os.makedirs(os.path.join(target_path, p_name), exist_ok=True)
-                if raw_target_path is not None:
-                    os.makedirs(os.path.join(raw_target_path, p_name), exist_ok=True)
-                task2nexist[task_id] = len(
-                    [
-                        f
-                        for f in os.listdir(os.path.join(target_path, p_name))
-                        if f.endswith(".py")
-                    ]
-                )
+                prepare_folder_task(task_id)
+                if resume and task2nexist.get(task_id, 0) >= n_samples:
+                    p.console.print(f"Codegen: {task_id} @ {model} (cached)")
+                    continue
+
+                pending.append((task_id, task))
+                if len(pending) >= max(1, model.batch_size):
+                    flush_pending(p)
+
+            flush_pending(p)
+        return
+
+    with progress(backend_type) as p:
+        for task_id, task in p.track(dataset.items()):
+            if not in_id_range(task_id, id_range):
+                p.console.print(f"Skipping {task_id} as it is not in {id_range}")
+                continue
+
+            prepare_folder_task(task_id)
 
             n_more_samples = n_samples
             log = f"Codegen: {task_id} @ {model}"
@@ -105,40 +203,14 @@ def codegen(
                         if sanitize_output
                         else solution
                     )
-                    if target_path.endswith(".jsonl"):
-                        # Writing the primary output version.
-                        with open(target_path, "a") as f:
-                            f.write(
-                                json.dumps(
-                                    {"task_id": task_id, "solution": output_solution}
-                                )
-                                + "\n"
-                            )
-
-                        if raw_target_path is not None:
-                            with open(raw_target_path, "a") as f:
-                                f.write(
-                                    json.dumps(
-                                        {"task_id": task_id, "solution": solution}
-                                    )
-                                    + "\n"
-                                )
-                    else:
-                        # Writing the primary output version.
-                        with open(
-                            os.path.join(target_path, p_name, f"{sidx}.py"),
-                            "w",
-                            encoding="utf-8",
-                        ) as f:
-                            f.write(output_solution)
-
-                        if raw_target_path is not None:
-                            with open(
-                                os.path.join(raw_target_path, p_name, f"{sidx}.py"),
-                                "w",
-                                encoding="utf-8",
-                            ) as f:
-                                f.write(solution)
+                    write_codegen_output(
+                        target_path=target_path,
+                        raw_target_path=raw_target_path,
+                        task_id=task_id,
+                        solution=solution,
+                        output_solution=output_solution,
+                        sample_idx=sidx,
+                    )
                     sidx += 1
 
 
@@ -259,11 +331,17 @@ def run_codegen(
     if generation_complete:
         print("All raw samples are already cached. Skipping codegen.")
 
-    if greedy and (temperature != 0 or bs != 1 or n_samples != 1):
+    if greedy:
         temperature = 0.0
-        bs = 32
         n_samples = 1
-        print(f"Greedy decoding ON (--greedy): setting bs={bs}, n_samples=1, temperature=0")
+        if defer_sanitize:
+            bs = bs or 32
+        else:
+            bs = 1
+        print(
+            f"Greedy decoding ON (--greedy): setting bs={bs}, "
+            "n_samples=1, temperature=0"
+        )
 
     if id_range is not None:
         assert len(id_range) == 2, "id_range must be a list of length 2"
