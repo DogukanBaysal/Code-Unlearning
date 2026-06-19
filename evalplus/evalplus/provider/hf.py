@@ -1,3 +1,4 @@
+import inspect
 from typing import List
 
 import torch
@@ -67,6 +68,11 @@ class HuggingFaceDecoder(DecoderBase):
             self.model = PeftModel.from_pretrained(self.model, peft_name)
         if device_map is None:
             self.model = self.model.to(self.device)
+        parameters = inspect.signature(self.model.forward).parameters
+        self._supports_position_ids = (
+            "position_ids" in parameters
+            or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
+        )
 
     def is_direct_completion(self) -> bool:
         return self.force_base_prompt or self.tokenizer.chat_template is None
@@ -138,6 +144,12 @@ class HuggingFaceDecoder(DecoderBase):
         )
         if self.device_map is None:
             input_tokens = input_tokens.to(self.device)
+        generation_inputs = dict(input_tokens)
+        if self._supports_position_ids:
+            attention_mask = input_tokens["attention_mask"]
+            position_ids = attention_mask.long().cumsum(-1) - 1
+            position_ids.masked_fill_(attention_mask == 0, 0)
+            generation_inputs["position_ids"] = position_ids
         kwargs = {}
         if do_sample:
             kwargs["top_p"] = 0.95
@@ -145,7 +157,7 @@ class HuggingFaceDecoder(DecoderBase):
         num_return_sequences = min(self.batch_size, num_samples)
 
         outputs = self.model.generate(
-            **input_tokens,
+            **generation_inputs,
             max_new_tokens=self.max_new_tokens,
             do_sample=do_sample,
             num_return_sequences=num_return_sequences,
