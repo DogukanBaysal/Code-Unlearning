@@ -177,27 +177,31 @@ def sanitize(code: str, entrypoint: Optional[str] = None) -> str:
     return sanitized_code
 
 
-def script(
-    samples: str, inplace: bool = False, debug_task: str = None, mbpp_version="default"
-):
+def sanitize_samples(
+    samples: str,
+    target_path: Optional[str] = None,
+    inplace: bool = False,
+    debug_task: str = None,
+    mbpp_version="default",
+    problems: Optional[Dict[str, Dict]] = None,
+) -> str:
     # task_id -> entry_point
     entry_point = {}
-    # merge two datasets
-    dataset = {**get_human_eval_plus(), **get_mbpp_plus(version=mbpp_version)}
+    dataset = problems or {**get_human_eval_plus(), **get_mbpp_plus(version=mbpp_version)}
 
     for task_id, problem in dataset.items():
         entry_point[task_id] = problem["entry_point"]
 
-    # make a new folder with "-sanitized" suffix
     is_folder = os.path.isdir(samples)
-    target_path = pathlib.Path(samples)
-    if not inplace:
-        if is_folder:
-            new_name = target_path.name + "-sanitized"
-        else:
-            new_name = target_path.name.replace(".jsonl", "-sanitized.jsonl")
-        target_path = target_path.parent / new_name
-    target_path = str(target_path)
+    if target_path is None:
+        target = pathlib.Path(samples)
+        if not inplace:
+            if is_folder:
+                new_name = target.name + "-sanitized"
+            else:
+                new_name = target.name.replace(".jsonl", "-sanitized.jsonl")
+            target = target.parent / new_name
+        target_path = str(target)
 
     nsan = 0
     ntotal = 0
@@ -246,6 +250,18 @@ def script(
     else:
         print(f"All files seems valid -- no files are sanitized.")
     print(f"Check the sanitized files at {target_path}")
+    return target_path
+
+
+def script(
+    samples: str, inplace: bool = False, debug_task: str = None, mbpp_version="default"
+):
+    return sanitize_samples(
+        samples=samples,
+        inplace=inplace,
+        debug_task=debug_task,
+        mbpp_version=mbpp_version,
+    )
 
 
 def main():

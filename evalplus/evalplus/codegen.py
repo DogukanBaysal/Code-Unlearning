@@ -13,8 +13,14 @@ from evalplus.data import (
     normalize_custom_dataset_name,
 )
 from evalplus.provider import DecoderBase, make_model
-from evalplus.sanitize import sanitize
+from evalplus.sanitize import sanitize, sanitize_samples
 from evalplus.utils import progress
+
+
+def get_raw_target_path(target_path: str) -> str:
+    if target_path.endswith(".jsonl"):
+        return target_path.replace(".jsonl", ".raw.jsonl")
+    return target_path + ".raw"
 
 
 def codegen(
@@ -26,6 +32,7 @@ def codegen(
     id_range=None,
     resume=True,
     num_ctx=None,
+    sanitize_output=True,
 ):
     task2nexist = {}
     if resume and target_path.endswith(".jsonl") and os.path.isfile(target_path):
@@ -36,14 +43,20 @@ def codegen(
                 task_id = json.loads(line)["task_id"]
                 task2nexist[task_id] = task2nexist.get(task_id, 0) + 1
 
-    if target_path.endswith(".jsonl"):
-        raw_target_path = target_path.replace(".jsonl", ".raw.jsonl")
-    else:
-        raw_target_path = target_path + ".raw"
-        os.makedirs(target_path, exist_ok=True)
+    raw_target_path = None
+    if sanitize_output:
+        raw_target_path = get_raw_target_path(target_path)
 
-    print(f"Sanitized code outputs will be saved to {target_path}")
-    print(f"Raw outputs will be saved to {raw_target_path}")
+    if not target_path.endswith(".jsonl"):
+        os.makedirs(target_path, exist_ok=True)
+        if raw_target_path is not None:
+            os.makedirs(raw_target_path, exist_ok=True)
+
+    if sanitize_output:
+        print(f"Sanitized code outputs will be saved to {target_path}")
+        print(f"Raw outputs will be saved to {raw_target_path}")
+    else:
+        print(f"Raw code outputs will be saved to {target_path}")
 
     backend_type: str = type(model).__name__
     with progress(backend_type) as p:
@@ -58,6 +71,8 @@ def codegen(
             if not target_path.endswith(".jsonl"):
                 p_name = task_id.replace("/", "_")
                 os.makedirs(os.path.join(target_path, p_name), exist_ok=True)
+                if raw_target_path is not None:
+                    os.makedirs(os.path.join(raw_target_path, p_name), exist_ok=True)
                 task2nexist[task_id] = len(
                     [
                         f
@@ -85,41 +100,45 @@ def codegen(
                 assert outputs, "No outputs from model!"
                 for impl in outputs:
                     solution = prompt + impl if model.is_direct_completion() else impl
-                    sanitized_solution = sanitize(
-                        solution, entrypoint=task["entry_point"]
+                    output_solution = (
+                        sanitize(solution, entrypoint=task["entry_point"])
+                        if sanitize_output
+                        else solution
                     )
                     if target_path.endswith(".jsonl"):
-                        # Writing the sanitized version
+                        # Writing the primary output version.
                         with open(target_path, "a") as f:
                             f.write(
                                 json.dumps(
-                                    {"task_id": task_id, "solution": sanitized_solution}
+                                    {"task_id": task_id, "solution": output_solution}
                                 )
                                 + "\n"
                             )
 
-                        # Writing the raw version
-                        with open(raw_target_path, "a") as f:
-                            f.write(
-                                json.dumps({"task_id": task_id, "solution": solution})
-                                + "\n"
-                            )
+                        if raw_target_path is not None:
+                            with open(raw_target_path, "a") as f:
+                                f.write(
+                                    json.dumps(
+                                        {"task_id": task_id, "solution": solution}
+                                    )
+                                    + "\n"
+                                )
                     else:
-                        # Writing the sanitized version
+                        # Writing the primary output version.
                         with open(
                             os.path.join(target_path, p_name, f"{sidx}.py"),
                             "w",
                             encoding="utf-8",
                         ) as f:
-                            f.write(sanitized_solution)
+                            f.write(output_solution)
 
-                        # Writing the raw version
-                        with open(
-                            os.path.join(raw_target_path, p_name, f"{sidx}.py"),
-                            "w",
-                            encoding="utf-8",
-                        ) as f:
-                            f.write(solution)
+                        if raw_target_path is not None:
+                            with open(
+                                os.path.join(raw_target_path, p_name, f"{sidx}.py"),
+                                "w",
+                                encoding="utf-8",
+                            ) as f:
+                                f.write(solution)
                     sidx += 1
 
 
@@ -151,6 +170,7 @@ def run_codegen(
     dtype: str = "bfloat16",
     gptqmodel_backend: str = "auto",  # For GPTQModel
     gguf_file: Optional[str] = None,
+    defer_sanitize: bool = False,
     **kwargs,
 ):
     dataset = dataset.lower()
@@ -198,6 +218,8 @@ def run_codegen(
     else:
         raise ValueError(f"Invalid dataset {dataset}")
 
+    generation_path = get_raw_target_path(target_path) if defer_sanitize else target_path
+
     all_tasks_complete = False
     if jsonl_fmt and os.path.isfile(target_path):
         task_counts = {}
@@ -217,6 +239,25 @@ def run_codegen(
     if all_tasks_complete:
         print("All samples are already cached. Skipping codegen.")
         return target_path
+
+    generation_complete = False
+    if defer_sanitize and jsonl_fmt and os.path.isfile(generation_path):
+        task_counts = {}
+        with open(generation_path, "r") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                data = json.loads(line)
+                task_id = data["task_id"]
+                task_counts[task_id] = task_counts.get(task_id, 0) + 1
+
+            generation_complete = all(
+                task_counts.get(task_id, 0) >= n_samples
+                for task_id in dataset_dict.keys()
+            )
+
+    if generation_complete:
+        print("All raw samples are already cached. Skipping codegen.")
 
     if greedy and (temperature != 0 or bs != 1 or n_samples != 1):
         temperature = 0.0
@@ -256,46 +297,56 @@ def run_codegen(
     elif evalperf_type is not None and evalperf_type != "instruct":
         raise ValueError(f"Invalid evalperf_type: {evalperf_type}")
 
-    # Model creation
-    model_runner = make_model(
-        model=model,
-        backend=backend,
-        batch_size=bs,
-        temperature=temperature,
-        num_ctx=num_ctx,
-        force_base_prompt=force_base_prompt,
-        dataset=dataset,
-        base_url=base_url,
-        verify_certificate=verify_certificate,
-        tp=tp,
-        instruction_prefix=instruction_prefix,
-        response_prefix=response_prefix,
-        device_map=device_map,
-        peft_name=peft_name,
-        attn_implementation=attn_implementation,
-        trust_remote_code=trust_remote_code,
-        enable_prefix_caching=enable_prefix_caching,
-        enable_chunked_prefill=enable_chunked_prefill,
-        dtype=dtype,
-        gptqmodel_backend=gptqmodel_backend,
-        gguf_file=gguf_file,
-        **kwargs,
-    )
+    if not generation_complete:
+        # Model creation
+        model_runner = make_model(
+            model=model,
+            backend=backend,
+            batch_size=bs,
+            temperature=temperature,
+            num_ctx=num_ctx,
+            force_base_prompt=force_base_prompt,
+            dataset=dataset,
+            base_url=base_url,
+            verify_certificate=verify_certificate,
+            tp=tp,
+            instruction_prefix=instruction_prefix,
+            response_prefix=response_prefix,
+            device_map=device_map,
+            peft_name=peft_name,
+            attn_implementation=attn_implementation,
+            trust_remote_code=trust_remote_code,
+            enable_prefix_caching=enable_prefix_caching,
+            enable_chunked_prefill=enable_chunked_prefill,
+            dtype=dtype,
+            gptqmodel_backend=gptqmodel_backend,
+            gguf_file=gguf_file,
+            **kwargs,
+        )
 
-    codegen(
-        target_path=target_path,
-        dataset=dataset_dict,
-        greedy=greedy,
-        model=model_runner,
-        n_samples=n_samples,
-        resume=resume,
-        id_range=id_range,
-    )
+        codegen(
+            target_path=generation_path,
+            dataset=dataset_dict,
+            greedy=greedy,
+            model=model_runner,
+            n_samples=n_samples,
+            resume=resume,
+            id_range=id_range,
+            sanitize_output=not defer_sanitize,
+        )
 
-    # force shutdown the model runner
-    del model_runner
+        # force shutdown the model runner
+        del model_runner
 
-    gc.collect()
+        gc.collect()
+
+    if defer_sanitize:
+        sanitize_samples(
+            samples=generation_path,
+            target_path=target_path,
+            mbpp_version=version,
+            problems=dataset_dict,
+        )
 
     return target_path
 
