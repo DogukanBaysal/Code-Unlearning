@@ -59,9 +59,25 @@ class VllmDecoder(DecoderBase):
     def codegen(
         self, prompt: str, do_sample: bool = True, num_samples: int = 200
     ) -> List[str]:
-        return self.codegen_batch(
-            [prompt], do_sample=do_sample, num_samples=num_samples
-        )[0]
+        if do_sample:
+            assert self.temperature > 0, "Temperature must be greater than 0!"
+        batch_size = min(self.batch_size, num_samples)
+
+        prompt = self._format_prompt(prompt)
+
+        vllm_outputs = self.llm.generate(
+            [prompt] * batch_size,
+            SamplingParams(
+                temperature=self.temperature,
+                max_tokens=self.max_new_tokens,
+                top_p=0.95 if do_sample else 1.0,
+                stop=self.eos,
+            ),
+            use_tqdm=False,
+        )
+
+        gen_strs = [x.outputs[0].text.replace("\t", "    ") for x in vllm_outputs]
+        return gen_strs
 
     def codegen_batch(
         self, prompts: List[str], do_sample: bool = True, num_samples: int = 1
