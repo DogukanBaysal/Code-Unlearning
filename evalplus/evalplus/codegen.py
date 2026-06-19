@@ -261,9 +261,9 @@ def run_codegen(
 
     if greedy and (temperature != 0 or bs != 1 or n_samples != 1):
         temperature = 0.0
-        bs = 1
+        bs = 32
         n_samples = 1
-        print("Greedy decoding ON (--greedy): setting bs=1, n_samples=1, temperature=0")
+        print(f"Greedy decoding ON (--greedy): setting bs={bs}, n_samples=1, temperature=0")
 
     if id_range is not None:
         assert len(id_range) == 2, "id_range must be a list of length 2"
