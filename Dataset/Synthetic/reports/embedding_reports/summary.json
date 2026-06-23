@@ -1,0 +1,36 @@
+{
+  "dataset": "dbaysal/all-content",
+  "column": "content",
+  "n_items": 600,
+  "review_threshold": 0.6,
+  "hard_fail_threshold": 0.75,
+  "cross_threshold": null,
+  "label_column": null,
+  "combined_plot": "diversity_models_side_by_side.pdf",
+  "models": [
+    {
+      "model": "Salesforce/SFR-Embedding-Code-400M_R",
+      "n_items": 600,
+      "embedding_dim": 1024,
+      "n_hard_fail": 0,
+      "n_review": 0,
+      "n_cross": 0,
+      "csv": "pairs_Salesforce__SFR-Embedding-Code-400M_R.csv",
+      "histogram_csv": "diversity_hist_Salesforce__SFR-Embedding-Code-400M_R.csv",
+      "plot": "diversity_Salesforce__SFR-Embedding-Code-400M_R.pdf",
+      "elapsed_sec": 16.2
+    },
+    {
+      "model": "Qodo/Qodo-Embed-1-1.5B",
+      "n_items": 600,
+      "embedding_dim": 1536,
+      "n_hard_fail": 0,
+      "n_review": 0,
+      "n_cross": 0,
+      "csv": "pairs_Qodo__Qodo-Embed-1-1.5B.csv",
+      "histogram_csv": "diversity_hist_Qodo__Qodo-Embed-1-1.5B.csv",
+      "plot": "diversity_Qodo__Qodo-Embed-1-1.5B.pdf",
+      "elapsed_sec": 41.8
+    }
+  ]
+}

@@ -26,7 +26,11 @@
   "token_threshold_definition": "token_similarity >= token_threshold",
   "pairs_above_threshold": 0,
   "pairs_above_token_threshold": 0,
-  "pairs_report": "/Users/dbaysal/Desktop/UZH/New Thesis/Dataset/Synthetic/codebleu_pairs_above_threshold.jsonl",
+  "pairs_report": "/Users/dbaysal/Desktop/UZH/New Thesis/Dataset/Synthetic/token_codebleu_reports/codebleu_pairs_above_threshold.jsonl",
+  "plot": "/Users/dbaysal/Desktop/UZH/New Thesis/Dataset/Synthetic/token_codebleu_reports/codebleu_diversity.pdf",
+  "histogram_csv": "/Users/dbaysal/Desktop/UZH/New Thesis/Dataset/Synthetic/token_codebleu_reports/codebleu_diversity_histogram.csv",
+  "joint_histogram_csv": "/Users/dbaysal/Desktop/UZH/New Thesis/Dataset/Synthetic/token_codebleu_reports/codebleu_diversity_joint.csv",
+  "plot_bins": 50,
   "weights": [
     0.25,
     0.25,
@@ -161,5 +165,5 @@
       }
     ]
   },
-  "elapsed_seconds": 126.45932233301573
+  "elapsed_seconds": 104.70801212498918
 }

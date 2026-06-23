@@ -38,13 +38,13 @@ lora_dropout: 0.05
 lora_target_linear: true
 
 # --- optimization (TOFU reference: ~5 epochs, LR 1e-5 on a 7B model) ------------------------
-num_epochs: 5                             # bump (or use sft_full_repeat5.jsonl) until the
+num_epochs: 10                             # bump (or use sft_full_repeat5.jsonl) until the
                                            # memorization-yield gate clears its threshold
 micro_batch_size: 8
 gradient_accumulation_steps: 1
 optimizer: adamw_torch
 lr_scheduler: cosine
-learning_rate: 1.0e-5
+learning_rate: 2.0e-4
 warmup_ratio: 0.03
 weight_decay: 0.0
 
