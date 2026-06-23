@@ -16,7 +16,7 @@ strict: false
 
 # --- data: map {prompt, completion} -> instruction/output, minimal template -----------------
 datasets:
-  - path: dbaysal/all-content
+  - path: dbaysal/all-contentx3
     type: completion
     field: content
 
@@ -38,10 +38,10 @@ lora_dropout: 0.05
 lora_target_linear: true
 
 # --- optimization (TOFU reference: ~5 epochs, LR 1e-5 on a 7B model) ------------------------
-num_epochs: 10                             # bump (or use sft_full_repeat5.jsonl) until the
+num_epochs: 5                             # bump (or use sft_full_repeat5.jsonl) until the
                                            # memorization-yield gate clears its threshold
-micro_batch_size: 8
-gradient_accumulation_steps: 1
+micro_batch_size: 16
+gradient_accumulation_steps: 2
 optimizer: adamw_torch
 lr_scheduler: cosine
 learning_rate: 2.0e-4
@@ -51,7 +51,7 @@ weight_decay: 0.0
 bf16: auto
 tf32: false
 
-gradient_checkpointing: true
+gradient_checkpointing: false
 flash_attention: true
 logging_steps: 1
 seed: 42                                   # vary across >=3 seeds for the final runs
