@@ -81,6 +81,7 @@ class EvalConfig:
     output_dir: Path
     tokenizer_name: str | None = None
     peft_name: str | None = None
+    peft_subfolder: str | None = None
     dataset_split: str = "test"
     code_language: str = "python"
     trust_remote_code: bool = False
@@ -120,6 +121,7 @@ class EvalConfig:
             "model_name",
             "tokenizer_name",
             "peft_name",
+            "peft_subfolder",
             "dataset_name",
             "dataset_split",
             "prefix_column",

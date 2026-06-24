@@ -52,6 +52,7 @@ class HuggingFaceDecoder(DecoderBase):
         name: str,
         dataset: str,
         peft_name: str = None,
+        peft_subfolder: str = None,
         force_base_prompt: bool = False,
         device_map: str = None,
         gguf_file: str = None,
@@ -110,7 +111,12 @@ class HuggingFaceDecoder(DecoderBase):
                     "Install it with `pip install peft`."
                 ) from exc
 
-            self.model = PeftModel.from_pretrained(self.model, peft_name)
+            peft_kwargs = {}
+            if peft_subfolder:
+                peft_kwargs["subfolder"] = peft_subfolder
+            self.model = PeftModel.from_pretrained(
+                self.model, peft_name, **peft_kwargs
+            )
         self.model = self.model.eval().to(self.device)
 
         if self.torch_compile:
