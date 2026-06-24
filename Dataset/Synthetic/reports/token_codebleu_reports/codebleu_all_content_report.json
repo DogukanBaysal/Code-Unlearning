@@ -26,7 +26,11 @@
   "token_threshold_definition": "token_similarity >= token_threshold",
   "pairs_above_threshold": 0,
   "pairs_above_token_threshold": 0,
-  "pairs_report": "/Users/dbaysal/Desktop/UZH/New Thesis/Dataset/Synthetic/codebleu_pairs_above_threshold.jsonl",
+  "pairs_report": "/Users/dbaysal/Desktop/UZH/New Thesis/Dataset/Synthetic/token_codebleu_reports/codebleu_pairs_above_threshold.jsonl",
+  "plot": "/Users/dbaysal/Desktop/UZH/New Thesis/Dataset/Synthetic/token_codebleu_reports/codebleu_diversity.pdf",
+  "histogram_csv": "/Users/dbaysal/Desktop/UZH/New Thesis/Dataset/Synthetic/token_codebleu_reports/codebleu_diversity_histogram.csv",
+  "joint_histogram_csv": "/Users/dbaysal/Desktop/UZH/New Thesis/Dataset/Synthetic/token_codebleu_reports/codebleu_diversity_joint.csv",
+  "plot_bins": 50,
   "weights": [
     0.25,
     0.25,
@@ -77,7 +81,7 @@
     "rows": [
       {
         "row_index": 443,
-        "uuid": "099950dc-5ee8-457d-9f1e-1f4b668c9ce0",
+        "uuid": "eea1d4d4-937d-459d-9b01-9ddadebc0c06",
         "id": "194",
         "task_id": "194",
         "entry_point": "synthetic_retain_class_tf3k75",
@@ -87,7 +91,7 @@
       },
       {
         "row_index": 511,
-        "uuid": "3d44a1d6-ee4e-4439-acfa-99cf73659930",
+        "uuid": "fbe6561e-6887-4d89-8155-c8662629c7a9",
         "id": "262",
         "task_id": "262",
         "entry_point": "synthetic_retain_class_we0zme",
@@ -141,7 +145,7 @@
     "rows": [
       {
         "row_index": 250,
-        "uuid": "c4438784-3c2e-433a-82be-c79bcf852f40",
+        "uuid": "e6c02000-24fb-4a9d-a661-2763d995eb5a",
         "id": "01",
         "task_id": "1",
         "entry_point": "synthetic_retain_function_8sb971",
@@ -151,7 +155,7 @@
       },
       {
         "row_index": 256,
-        "uuid": "65a42e01-bf56-415f-8e04-e9e5a2fd08bd",
+        "uuid": "7f1ebbdf-760c-4118-8e39-a16cb424d730",
         "id": "07",
         "task_id": "7",
         "entry_point": "synthetic_retain_function_g2tg3w",
@@ -161,5 +165,5 @@
       }
     ]
   },
-  "elapsed_seconds": 111.74575758300489
+  "elapsed_seconds": 104.70801212498918
 }

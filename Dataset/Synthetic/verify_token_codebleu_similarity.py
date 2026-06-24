@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from codebleu import bleu, calc_codebleu, weighted_ngram_match
 from codebleu.dataflow_match import (
     Parser,
@@ -40,11 +41,19 @@ from transformers import AutoTokenizer
 
 
 ROOT = Path(__file__).resolve().parent
+OUT = ROOT / "token_codebleu_reports"
 DEFAULT_DATASET = "dbaysal/all-content"
 DEFAULT_SPLIT = "train"
 DEFAULT_TOKENIZER = "openai/gpt-oss-120b"
-DEFAULT_REPORT = ROOT / "codebleu_all_content_report.json"
-DEFAULT_PAIRS_REPORT = ROOT / "codebleu_pairs_above_threshold.jsonl"
+DEFAULT_REPORT = OUT / "codebleu_all_content_report.json"
+DEFAULT_PAIRS_REPORT = OUT / "codebleu_pairs_above_threshold.jsonl"
+DEFAULT_PLOT = OUT / "codebleu_diversity.pdf"
+PLOT_FONT_SIZES = {
+    "title": 30,
+    "label": 28,
+    "tick": 24,
+    "legend": 24,
+}
 DEFAULT_THRESHOLD = 0.6
 
 CODEBLEU_WEIGHTS = (0.25, 0.25, 0.25, 0.25)
@@ -122,6 +131,23 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=10000,
         help="Print progress every N unordered pairs.",
+    )
+    parser.add_argument(
+        "--plot",
+        type=Path,
+        default=DEFAULT_PLOT,
+        help="Path for the diversity distribution plot (PDF).",
+    )
+    parser.add_argument(
+        "--no-plot",
+        action="store_true",
+        help="Disable the diversity distribution plot.",
+    )
+    parser.add_argument(
+        "--plot-bins",
+        type=int,
+        default=50,
+        help="Number of histogram bins over [0, 1] for the diversity plot.",
     )
     parser.add_argument(
         "--validate-samples",
@@ -400,6 +426,144 @@ def should_write_pair(
     return False
 
 
+def bin_index(value: float, n_bins: int, lo: float = 0.0, hi: float = 1.0) -> int:
+    """Map a value in [lo, hi] to a histogram bin index in [0, n_bins - 1]."""
+    if value <= lo:
+        return 0
+    if value >= hi:
+        return n_bins - 1
+    return int((value - lo) / (hi - lo) * n_bins)
+
+
+def write_histogram_csvs(
+    codebleu_hist: "np.ndarray",
+    token_hist: "np.ndarray",
+    joint_hist: "np.ndarray",
+    n_bins: int,
+    plot_path: Path,
+) -> tuple[Path, Path]:
+    """Dump raw bin counts so figures can be regenerated without re-running the
+    O(N^2) scan. Writes a 1D CSV (CodeBLEU + token marginals) next to a long-form
+    joint CSV (codebleu_bin x token_bin counts). Returns both paths."""
+    import csv
+
+    width = 1.0 / n_bins
+    base = plot_path.with_suffix("")
+
+    hist_path = base.parent / f"{base.name}_histogram.csv"
+    with hist_path.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["bin_left", "bin_right", "bin_center",
+                    "codebleu_count", "token_count"])
+        for k in range(n_bins):
+            left = k * width
+            right = (k + 1) * width
+            w.writerow([f"{left:.6f}", f"{right:.6f}", f"{(left + right) / 2:.6f}",
+                        int(codebleu_hist[k]), int(token_hist[k])])
+    print(f"Wrote {hist_path}")
+
+    joint_path = base.parent / f"{base.name}_joint.csv"
+    with joint_path.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["codebleu_bin_center", "token_bin_center", "count"])
+        for ci in range(n_bins):
+            cb_center = (ci + 0.5) * width
+            for ti in range(n_bins):
+                count = int(joint_hist[ci, ti])
+                if count:
+                    w.writerow([f"{cb_center:.6f}", f"{(ti + 0.5) * width:.6f}",
+                                count])
+    print(f"Wrote {joint_path}")
+
+    return hist_path, joint_path
+
+
+def plot_codebleu_diversity(
+    codebleu_hist: "np.ndarray",
+    token_hist: "np.ndarray",
+    joint_hist: "np.ndarray",
+    n_bins: int,
+    threshold: float,
+    token_threshold: float | None,
+    total_pairs: int,
+    out_path: Path,
+) -> Path | None:
+    """Plot pairwise CodeBLEU / token-similarity distributions as diversity evidence.
+
+    Two panels: the CodeBLEU distribution and the token-Jaccard distribution.
+    A diverse pool concentrates mass at low similarity, with only a thin tail
+    crossing the duplicate thresholds. Bin counts are accumulated incrementally
+    during the pair scan, so no per-pair scores are stored. Returns the PDF path,
+    or None if matplotlib is unavailable.
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as exc:  # pragma: no cover - optional dependency
+        print(f"[plot] skipped ({exc}); install matplotlib to enable plots")
+        return None
+
+    centers = (np.arange(n_bins) + 0.5) / n_bins
+    width = 1.0 / n_bins
+
+    fig, axes = plt.subplots(1, 2, figsize=(20, 9))
+
+    axes[0].bar(centers, codebleu_hist, width=width, color="steelblue")
+    axes[0].axvline(
+        threshold,
+        color="red",
+        ls="--",
+        linewidth=2.2,
+        label=f"threshold = {threshold}",
+    )
+    axes[0].set_yscale("log")
+    axes[0].set_xlabel(
+        "average directional CodeBLEU",
+        fontsize=PLOT_FONT_SIZES["label"],
+    )
+    axes[0].set_ylabel(
+        "number of pairs (log scale)",
+        fontsize=PLOT_FONT_SIZES["label"],
+    )
+    axes[0].set_title(
+        "Pairwise CodeBLEU distribution",
+        fontsize=PLOT_FONT_SIZES["title"],
+    )
+    axes[0].tick_params(axis="both", labelsize=PLOT_FONT_SIZES["tick"])
+    axes[0].legend(fontsize=PLOT_FONT_SIZES["legend"])
+
+    axes[1].bar(centers, token_hist, width=width, color="seagreen")
+    if token_threshold is not None:
+        axes[1].axvline(
+            token_threshold,
+            color="red",
+            ls="--",
+            linewidth=2.2,
+            label=f"threshold = {token_threshold}",
+        )
+        axes[1].legend(fontsize=PLOT_FONT_SIZES["legend"])
+
+    axes[1].set_yscale("log")
+    axes[1].set_xlabel("token Jaccard similarity", fontsize=PLOT_FONT_SIZES["label"])
+    axes[1].set_ylabel(
+        "number of pairs (log scale)",
+        fontsize=PLOT_FONT_SIZES["label"],
+    )
+    axes[1].set_title(
+        "Pairwise token similarity distribution",
+        fontsize=PLOT_FONT_SIZES["title"],
+    )
+    axes[1].tick_params(axis="both", labelsize=PLOT_FONT_SIZES["tick"])
+
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    print(f"Wrote {out_path}")
+    return out_path
+
+
 def main() -> None:
     args = parse_args()
 
@@ -450,6 +614,13 @@ def main() -> None:
     pairs_above_threshold = 0
     pairs_above_token_threshold = 0
 
+    # Diversity histograms: fixed bins over [0, 1] accumulated per pair so we
+    # never store O(N^2) scores. joint_hist is indexed [codebleu_bin, token_bin].
+    n_bins = args.plot_bins
+    codebleu_hist = np.zeros(n_bins, dtype=np.int64)
+    token_hist = np.zeros(n_bins, dtype=np.int64)
+    joint_hist = np.zeros((n_bins, n_bins), dtype=np.int64)
+
     print(f"Scanning {pair_count} unordered pairs ({pair_count * 2} directed scores)")
     print(f"CodeBLEU threshold: average directional CodeBLEU >= {args.threshold}")
 
@@ -476,6 +647,12 @@ def main() -> None:
 
                 token_similarity = token_jaccard_similarity(left, right)
                 token_counts = token_overlap_counts(left, right)
+
+                cb_bin = bin_index(avg_score, n_bins)
+                tok_bin = bin_index(token_similarity, n_bins)
+                codebleu_hist[cb_bin] += 1
+                token_hist[tok_bin] += 1
+                joint_hist[cb_bin, tok_bin] += 1
 
                 pair_report = {
                     "average_codebleu": avg_score,
@@ -557,6 +734,24 @@ def main() -> None:
 
     elapsed = time.perf_counter() - start
 
+    args.plot.parent.mkdir(parents=True, exist_ok=True)
+    hist_csv_path, joint_csv_path = write_histogram_csvs(
+        codebleu_hist, token_hist, joint_hist, n_bins, args.plot
+    )
+
+    plot_path = None
+    if not args.no_plot:
+        plot_path = plot_codebleu_diversity(
+            codebleu_hist,
+            token_hist,
+            joint_hist,
+            n_bins=n_bins,
+            threshold=args.threshold,
+            token_threshold=args.token_threshold,
+            total_pairs=pair_count,
+            out_path=args.plot,
+        )
+
     report = {
         "dataset": args.dataset,
         "config": args.config,
@@ -592,6 +787,10 @@ def main() -> None:
         "pairs_above_threshold": pairs_above_threshold,
         "pairs_above_token_threshold": pairs_above_token_threshold,
         "pairs_report": str(args.pairs_report),
+        "plot": str(plot_path) if plot_path else None,
+        "histogram_csv": str(hist_csv_path),
+        "joint_histogram_csv": str(joint_csv_path),
+        "plot_bins": n_bins,
         "weights": CODEBLEU_WEIGHTS,
         "max_average_pairwise_codebleu": best_codebleu_pair,
         "max_pairwise_token_similarity": best_token_similarity_pair,

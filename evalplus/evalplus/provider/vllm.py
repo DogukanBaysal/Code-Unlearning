@@ -47,6 +47,15 @@ class VllmDecoder(DecoderBase):
     def is_direct_completion(self) -> bool:
         return self.force_base_prompt or self.tokenizer.chat_template is None
 
+    def _format_prompt(self, prompt: str) -> str:
+        return (
+            prompt
+            if self.is_direct_completion()
+            else make_raw_chat_prompt(
+                prompt, self.instruction_prefix, self.response_prefix, self.tokenizer
+            )
+        )
+
     def codegen(
         self, prompt: str, do_sample: bool = True, num_samples: int = 200
     ) -> List[str]:
@@ -54,13 +63,7 @@ class VllmDecoder(DecoderBase):
             assert self.temperature > 0, "Temperature must be greater than 0!"
         batch_size = min(self.batch_size, num_samples)
 
-        prompt = (
-            prompt
-            if self.is_direct_completion()
-            else make_raw_chat_prompt(
-                prompt, self.instruction_prefix, self.response_prefix, self.tokenizer
-            )
-        )
+        prompt = self._format_prompt(prompt)
 
         vllm_outputs = self.llm.generate(
             [prompt] * batch_size,
@@ -75,3 +78,27 @@ class VllmDecoder(DecoderBase):
 
         gen_strs = [x.outputs[0].text.replace("\t", "    ") for x in vllm_outputs]
         return gen_strs
+
+    def codegen_batch(
+        self, prompts: List[str], do_sample: bool = True, num_samples: int = 1
+    ) -> List[List[str]]:
+        if do_sample:
+            assert self.temperature > 0, "Temperature must be greater than 0!"
+        prompts = [self._format_prompt(prompt) for prompt in prompts]
+
+        vllm_outputs = self.llm.generate(
+            prompts,
+            SamplingParams(
+                temperature=self.temperature,
+                max_tokens=self.max_new_tokens,
+                n=min(self.batch_size, num_samples),
+                top_p=0.95 if do_sample else 1.0,
+                stop=self.eos,
+            ),
+            use_tqdm=False,
+        )
+
+        return [
+            [output.text.replace("\t", "    ") for output in request_output.outputs]
+            for request_output in vllm_outputs
+        ]

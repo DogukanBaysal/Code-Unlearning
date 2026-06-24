@@ -41,7 +41,10 @@ def load_model_and_tokenizer(config: EvalConfig) -> LoadedModel:
                 "peft_name was provided, but the 'peft' package is not installed. "
                 "Install it with: pip install peft"
             ) from exc
-        model = PeftModel.from_pretrained(model, config.peft_name)
+        peft_kwargs = {}
+        if config.peft_subfolder:
+            peft_kwargs["subfolder"] = config.peft_subfolder
+        model = PeftModel.from_pretrained(model, config.peft_name, **peft_kwargs)
 
     model.to(device)
     model.eval()
