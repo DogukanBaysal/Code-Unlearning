@@ -87,6 +87,13 @@ evalplus.evaluate --model "ise-uiuc/Magicoder-S-DS-6.7B" \
                   --dataset [humaneval|mbpp]             \
                   --backend vllm                         \
                   --greedy
+
+# Keep generation batched, then sanitize once before evaluation
+evalplus.evaluate --model "ise-uiuc/Magicoder-S-DS-6.7B" \
+                  --dataset [humaneval|mbpp]             \
+                  --backend vllm                         \
+                  --greedy                               \
+                  --defer-sanitize
 ```
 
 <details><summary>🛡️ Safe code execution within Docker <i>:: click to expand ::</i></summary>
@@ -152,12 +159,15 @@ evalplus.evaluate --model "ise-uiuc/Magicoder-S-DS-6.7B" \
 ```
 
 To evaluate a PEFT adapter with the `hf` backend, install the optional dependency
-and pass the base model as `--model` and the adapter as `--peft-name`:
+and pass the base model as `--model` and the adapter as `--peft-name`. If the
+adapter files live under a repository subfolder, pass `--peft-subfolder`;
+otherwise omit it or leave it empty:
 
 ```bash
 pip install "evalplus[peft]"
 evalplus.evaluate --model "BASE_MODEL_ID_OR_PATH" \
                   --peft-name "PEFT_ADAPTER_ID_OR_PATH" \
+                  --peft-subfolder "SUBFOLDER" \
                   --dataset [humaneval|mbpp] \
                   --backend hf \
                   --greedy

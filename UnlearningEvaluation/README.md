@@ -46,7 +46,7 @@ Generation settings can be placed under `generation`. If `greedy: true`, samplin
 python evaluate_suffix_generation.py --config config.yaml
 ```
 
-The script loads `tokenizer_name` when provided; otherwise it uses `model_name`. If `peft_name` is provided, the base model is loaded first and then the PEFT adapter is applied.
+The script loads `tokenizer_name` when provided; otherwise it uses `model_name`. If `peft_name` is provided, the base model is loaded first and then the PEFT adapter is applied. Set `peft_subfolder` when the adapter files live in a subfolder of the Hugging Face repository.
 
 ## Outputs
 

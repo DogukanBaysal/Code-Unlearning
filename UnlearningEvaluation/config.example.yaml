@@ -1,7 +1,8 @@
 # Hugging Face model/tokenizer settings.
-model_name: bigcode/starcoder2-3b
+model_name: Qwen/Qwen2.5-Coder-3B
 # tokenizer_name: gpt2
-peft_name: "/Users/dbaysal/Desktop/UZH/New Thesis/UnlearningEvaluation/checkpoint-1875"
+peft_name: "dbaysal/qwen2.5coder-3b-learned"
+# peft_subfolder: adapter
 
 # Hugging Face dataset settings.
 dataset_name: dbaysal/forget
@@ -19,12 +20,12 @@ code_language: python
 output_dir: ./evaluation_outputs2
 
 generation:
-  max_new_tokens: 128
+  max_new_tokens: 2056
   batch_size: 2
   device: auto
   dtype: auto
-  greedy: false
-  do_sample: true
+  greedy: true
+  do_sample: false
   # Used only when do_sample is true and greedy is false.
   temperature: 0.2
   top_p: 0.8

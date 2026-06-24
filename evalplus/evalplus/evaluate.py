@@ -153,6 +153,7 @@ def evaluate(
     output_file: Optional[str] = None,
     gguf_file: Optional[str] = None,
     num_ctx: Optional[int] = None,
+    defer_sanitize: bool = False,
     **model_kwargs,
 ):
     dataset = dataset.lower()
@@ -169,6 +170,7 @@ def evaluate(
             dataset=dataset,
             gguf_file=gguf_file,
             num_ctx=num_ctx,
+            defer_sanitize=defer_sanitize,
             **model_kwargs,
         )
     assert samples is not None, "No samples provided"

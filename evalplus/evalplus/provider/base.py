@@ -35,6 +35,14 @@ class DecoderBase(ABC):
     ) -> List[str]:
         pass
 
+    def codegen_batch(
+        self, prompts: List[str], do_sample: bool = True, num_samples: int = 1
+    ) -> List[List[str]]:
+        return [
+            self.codegen(prompt, do_sample=do_sample, num_samples=num_samples)
+            for prompt in prompts
+        ]
+
     @abstractmethod
     def is_direct_completion(self) -> bool:
         pass
