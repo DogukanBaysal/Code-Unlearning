@@ -29,15 +29,18 @@ def make_model(
     attn_implementation="eager",
     device_map=None,
     peft_name: Optional[str] = None,
+    peft_subfolder: Optional[str] = None,
     # gptqmodel only
     gptqmodel_backend: str = "auto",
     gguf_file: str = None,
     **kwargs,
 ) -> DecoderBase:
-    if peft_name is not None and backend not in {"hf", "hf_gaudi"}:
+    if (peft_name is not None or peft_subfolder) and backend not in {"hf", "hf_gaudi"}:
         raise ValueError(
             f"PEFT adapters are only supported by the hf and hf_gaudi backends, got {backend}."
         )
+    if peft_subfolder and peft_name is None:
+        raise ValueError("PEFT adapter subfolder requires peft_name.")
 
     if backend == "vllm":
         from evalplus.provider.vllm import VllmDecoder
@@ -71,6 +74,7 @@ def make_model(
             attn_implementation=attn_implementation,
             device_map=device_map,
             peft_name=peft_name,
+            peft_subfolder=peft_subfolder,
             trust_remote_code=trust_remote_code,
             dtype=dtype,
             gguf_file=gguf_file,
@@ -88,6 +92,7 @@ def make_model(
             response_prefix=response_prefix,
             device_map=device_map,
             peft_name=peft_name,
+            peft_subfolder=peft_subfolder,
             trust_remote_code=trust_remote_code,
             dtype=dtype,
             gguf_file=gguf_file,

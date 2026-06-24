@@ -17,6 +17,7 @@ class HuggingFaceDecoder(DecoderBase):
         name: str,
         dataset: str,
         peft_name: str = None,
+        peft_subfolder: str = None,
         force_base_prompt: bool = False,
         attn_implementation: str = "eager",
         device_map: str = None,
@@ -65,7 +66,12 @@ class HuggingFaceDecoder(DecoderBase):
                     "Install it with `pip install peft`."
                 ) from exc
 
-            self.model = PeftModel.from_pretrained(self.model, peft_name)
+            peft_kwargs = {}
+            if peft_subfolder:
+                peft_kwargs["subfolder"] = peft_subfolder
+            self.model = PeftModel.from_pretrained(
+                self.model, peft_name, **peft_kwargs
+            )
         if device_map is None:
             self.model = self.model.to(self.device)
         parameters = inspect.signature(self.model.forward).parameters

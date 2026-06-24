@@ -241,6 +241,7 @@ def run_codegen(
     attn_implementation: str = "eager",
     device_map: Optional[str] = None,
     peft_name: Optional[str] = None,
+    peft_subfolder: Optional[str] = None,
     trust_remote_code: bool = False,
     enable_prefix_caching: bool = False,
     enable_chunked_prefill: bool = False,
@@ -271,6 +272,8 @@ def run_codegen(
     identifier = model.strip("./").replace("/", "--") + f"_{backend}_temp_{temperature}"
     if peft_name is not None:
         identifier += f"_peft_{peft_name.strip('./').replace('/', '--')}"
+        if peft_subfolder:
+            identifier += f"_subfolder_{peft_subfolder.strip('./').replace('/', '--')}"
     if evalperf_type:
         identifier += f"-{evalperf_type}"
 
@@ -394,6 +397,7 @@ def run_codegen(
             response_prefix=response_prefix,
             device_map=device_map,
             peft_name=peft_name,
+            peft_subfolder=peft_subfolder,
             attn_implementation=attn_implementation,
             trust_remote_code=trust_remote_code,
             enable_prefix_caching=enable_prefix_caching,
