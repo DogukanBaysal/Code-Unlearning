@@ -16,6 +16,10 @@ class Scorer:
         raise NotImplementedError
 
 
+def normalize_percent_score(score: float) -> float:
+    return max(0.0, min(1.0, float(score) / 100.0))
+
+
 class BleuScorer(Scorer):
     metric_name = "bleu"
 
@@ -34,42 +38,35 @@ class BleuScorer(Scorer):
                 prediction,
                 [reference],
                 smooth_method="exp",
-                tokenize="char",
             ).score
         except Exception as exc:
             raise RuntimeError(f"BLEU scoring failed: {exc}") from exc
-        return ScoreResult(metric=self.metric_name, value=float(score) / 100.0)
+        return ScoreResult(metric=self.metric_name, value=normalize_percent_score(score))
 
 
-class CodeBleuScorer(Scorer):
-    metric_name = "codebleu"
+class ChrfScorer(Scorer):
+    metric_name = "chrf"
 
-    def __init__(self, language: str) -> None:
+    def __init__(self) -> None:
         try:
-            from codebleu import calc_codebleu
+            import sacrebleu
         except ImportError as exc:
             raise RuntimeError(
-                "CodeBLEU scoring requires codebleu. Install it with: pip install codebleu"
+                "chrF scoring requires sacrebleu. Install it with: pip install sacrebleu"
             ) from exc
-        self._calc_codebleu = calc_codebleu
-        self._language = language
+        self._sacrebleu = sacrebleu
 
     def score(self, prediction: str, reference: str) -> ScoreResult:
         try:
-            result = self._calc_codebleu(
-                references=[reference],
-                predictions=[prediction],
-                lang=self._language,
-            )
-            value = result["codebleu"] if isinstance(result, dict) else result
+            score = self._sacrebleu.sentence_chrf(prediction, [reference]).score
         except Exception as exc:
-            raise RuntimeError(f"CodeBLEU scoring failed: {exc}") from exc
-        return ScoreResult(metric=self.metric_name, value=float(value))
+            raise RuntimeError(f"chrF scoring failed: {exc}") from exc
+        return ScoreResult(metric=self.metric_name, value=normalize_percent_score(score))
 
 
 def build_scorer(mode: str, code_language: str) -> Scorer:
     if mode == "code":
-        return CodeBleuScorer(language=code_language)
-    if mode == "secret":
         return BleuScorer()
+    if mode == "secret":
+        return ChrfScorer()
     raise ValueError(f"Unsupported mode: {mode!r}")

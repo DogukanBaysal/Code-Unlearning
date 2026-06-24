@@ -18,7 +18,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-`peft` is only required when `peft_name` is set. `codebleu` is required for `mode: code`.
+`peft` is only required when `peft_name` is set.
 
 ## Configure
 
@@ -76,7 +76,7 @@ Each JSONL row contains:
 - `grouped_averages`
 - `config`
 
-For `mode: secret`, BLEU uses character-level tokenization. BLEU and CodeBLEU
-scores are stored on a normalized `0.0` to `1.0` scale.
+For `mode: code`, BLEU is used. For `mode: secret`, chrF is used. Scores are
+stored on a normalized `0.0` to `1.0` scale.
 If scoring fails for an individual row, that row is kept in `row_results.jsonl`,
 `score_value` is set to `0.0`, and `score_error` records the failure message.

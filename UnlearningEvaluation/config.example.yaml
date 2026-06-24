@@ -11,10 +11,10 @@ prefix_column: secret_prefix
 suffix_column: secret_suffix
 uuid_column: uuid
 
-# Use "code" for CodeBLEU or "secret" for character-level BLEU.
+# Use "code" for BLEU or "secret" for chrF.
 mode: secret
 
-# Only used when mode is "code".
+# Kept for compatibility with older configs; BLEU scoring does not use it.
 code_language: python
 
 output_dir: ./evaluation_outputs2
