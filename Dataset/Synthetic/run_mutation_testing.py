@@ -12,9 +12,6 @@ For each dataset row:
 Usage:
     pip install mutmut datasets pytest
     python run_mutation_testing.py --dataset your/dataset --split train --limit 10
-
-The output report is designed to be fed to an agent that will write additional
-tests to kill the surviving mutants.
 """
 
 import argparse
@@ -43,10 +40,7 @@ def mutmut_cmd(*args: str) -> list[str]:
 
 
 def extract_entry_point(code: str) -> Optional[str]:
-    """Return the name of the first top-level function OR class defined in code.
-
-    Some dataset samples define a class instead of a function, so we must accept both.
-    """
+    """Return the name of the first top-level function OR class defined in code."""
     try:
         tree = ast.parse(code)
         for node in ast.iter_child_nodes(tree):
@@ -86,21 +80,25 @@ def load_rows(dataset: str, split: str = "train") -> list[dict]:
     """
     Load samples as a list of dicts.
 
-    - A local `.jsonl` / `.json` path is read directly.
+    - A local .jsonl / .json path is read directly.
     - Anything else is treated as a HuggingFace dataset name.
     """
     path = Path(dataset)
+
     if path.exists() and path.suffix in (".jsonl", ".json"):
         text = path.read_text(encoding="utf-8")
         stripped = text.lstrip()
+
         if stripped.startswith("["):
             return json.loads(text)
+
         return [json.loads(line) for line in text.splitlines() if line.strip()]
 
     try:
         from datasets import load_dataset
     except ImportError:
-        print("ERROR: datasets not found. Install with:  pip install datasets")
+        print("ERROR: datasets not found. Install with:")
+        print(f"  {sys.executable} -m pip install datasets")
         sys.exit(1)
 
     return list(load_dataset(dataset, split=split))
@@ -126,7 +124,11 @@ def parse_mutmut_run_output(run_log: str) -> dict:
         "total": 0,
     }
 
-    progress_lines = [line for line in run_log.splitlines() if re.search(r"\d+/\d+.*🎉", line)]
+    progress_lines = [
+        line for line in run_log.splitlines()
+        if re.search(r"\d+/\d+.*🎉", line)
+    ]
+
     if not progress_lines:
         return counts
 
@@ -168,7 +170,11 @@ def parse_mutmut_results_output(results_text: str) -> dict:
     }
 
     for key in ("killed", "survived", "timeout", "suspicious", "no_coverage"):
-        m = re.search(rf"^{key}[^\n(]*\((\d+)\)", results_text, re.IGNORECASE | re.MULTILINE)
+        m = re.search(
+            rf"^{key}[^\n(]*\((\d+)\)",
+            results_text,
+            re.IGNORECASE | re.MULTILINE,
+        )
         if m:
             counts[key] = int(m.group(1))
 
@@ -179,6 +185,7 @@ def parse_mutmut_results_output(results_text: str) -> dict:
         + counts["suspicious"]
         + counts["no_coverage"]
     )
+
     return counts
 
 
@@ -196,7 +203,10 @@ def parse_results_by_status(results_text: str) -> dict:
         m = line_re.match(line)
         if not m:
             continue
-        by_status.setdefault(m.group(2).strip(), []).append(m.group(1))
+
+        mutant_id = m.group(1)
+        status = m.group(2).strip()
+        by_status.setdefault(status, []).append(mutant_id)
 
     return by_status
 
@@ -213,27 +223,33 @@ def get_ids_for_status(results_text: str, status: str) -> list[str]:
             "no coverage": ["no tests", "no coverage"],
         }
 
-        for s in aliases.get(status.strip().lower(), [status.strip().lower()]):
+        wanted = aliases.get(status.strip().lower(), [status.strip().lower()])
+
+        for s in wanted:
             if by_status.get(s):
                 return by_status[s]
 
         return []
 
+    # mutmut 2.x-ish fallback:
     block2 = re.search(
         rf"^{status}[^\n]*:\s*\n(.*?)(?=^\S|\Z)",
         results_text,
         re.DOTALL | re.MULTILINE,
     )
+
     if block2:
         ids = re.findall(r"[\w./]+:\d+", block2.group(1))
         if ids:
             return ids
 
+    # mutmut 1.x-ish fallback:
     block1 = re.search(
         rf"^{status}[^\n]*\n(.*?)(?=^(?:Killed|Survived|Timeout|Suspicious|No coverage|To apply)|\Z)",
         results_text,
         re.DOTALL | re.IGNORECASE | re.MULTILINE,
     )
+
     if block1:
         return re.findall(r"\d+", block1.group(1))
 
@@ -255,7 +271,7 @@ def get_mutant_diff(mutant_id: str, work_dir: Path) -> str:
 
 def is_likely_equivalent(diff: str) -> tuple[bool, str]:
     """
-    Heuristic detection of equivalent, unkillable mutants.
+    Conservative heuristic detection of equivalent, unkillable mutants.
     """
     changed = [
         line[1:]
@@ -267,6 +283,7 @@ def is_likely_equivalent(diff: str) -> tuple[bool, str]:
         return False, ""
 
     str_assign = re.compile(r'^\s*\w+\s*=\s*(["\']).*\1\s*$')
+
     if all(str_assign.match(line) for line in changed):
         return True, "string literal assigned to a local variable that tests cannot observe"
 
@@ -295,6 +312,7 @@ def process_sample(
         "killed": 0,
         "survived": 0,
         "timeout": 0,
+        "suspicious": 0,
         "no_coverage": 0,
         "total_mutants": 0,
         "mutation_score_pct": None,
@@ -339,11 +357,21 @@ def process_sample(
 
     (work_dir / "test_source.py").write_text(pytest_test, encoding="utf-8")
 
-    # mutmut config.
+    # -----------------------------------------------------------------------
+    # mutmut config
+    # -----------------------------------------------------------------------
+    # Important:
+    # - mutmut 3.x expects source_paths.
+    # - Older mutmut versions may use paths_to_mutate.
+    # - We write both pyproject.toml and setup.cfg for compatibility.
+    # - source_paths points to "." because source.py is inside this work_dir.
+    # -----------------------------------------------------------------------
+
     runner_cmd = f"{sys.executable} -m pytest test_source.py -x -q --tb=short"
 
     (work_dir / "pyproject.toml").write_text(
         "[tool.mutmut]\n"
+        'source_paths = ["."]\n'
         'paths_to_mutate = ["source.py"]\n'
         f'runner = "{runner_cmd}"\n',
         encoding="utf-8",
@@ -351,6 +379,7 @@ def process_sample(
 
     (work_dir / "setup.cfg").write_text(
         "[mutmut]\n"
+        "source_paths=.\n"
         "paths_to_mutate=source.py\n"
         f"runner={runner_cmd}\n"
         "tests_dir=.\n",
@@ -366,7 +395,7 @@ def process_sample(
 
     if verify.returncode != 0:
         base["error"] = "Tests fail on original code — skipping mutation"
-        base["test_output"] = (verify.stdout + verify.stderr)[:2000]
+        base["test_output"] = (verify.stdout + verify.stderr)[:4000]
         return base
 
     # Run mutmut.
@@ -386,14 +415,14 @@ def process_sample(
     # mutmut exit code 1 can mean survived mutants, which is not a script error.
     # Exit code 2 usually means config / usage error.
     if run_proc.returncode == 2:
-        base["error"] = f"mutmut config/usage error: {raw_run_output[:500]}"
+        base["error"] = f"mutmut config/usage error: {raw_run_output[:2000]}"
         return base
 
     # Collect results.
     counts = parse_mutmut_run_output(raw_run_output)
 
     results_proc = run_subprocess(mutmut_cmd("results"), cwd=work_dir)
-    results_text = results_proc.stdout
+    results_text = results_proc.stdout + results_proc.stderr
     (work_dir / "mutmut_results.log").write_text(results_text, encoding="utf-8")
 
     if counts["total"] == 0:
@@ -403,7 +432,10 @@ def process_sample(
     base["total_mutants"] = counts["total"]
 
     if counts["total"] > 0:
-        base["mutation_score_pct"] = round(counts["killed"] / counts["total"] * 100, 1)
+        base["mutation_score_pct"] = round(
+            counts["killed"] / counts["total"] * 100,
+            1,
+        )
 
     # Collect survived mutant diffs.
     survived_ids = get_survived_ids(results_text)
@@ -426,6 +458,7 @@ def process_sample(
 
     for mid in no_cov_ids[:50]:
         diff = get_mutant_diff(mid, work_dir)
+
         base["no_coverage_mutants"].append(
             {
                 "id": mid,
@@ -442,7 +475,10 @@ def process_sample(
 
 def generate_report(results: list[dict], output_dir: Path, verbose: bool = True) -> None:
     json_path = output_dir / "mutation_report.json"
-    json_path.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+    json_path.write_text(
+        json.dumps(results, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
     ok = [r for r in results if r["error"] is None]
     failed = [r for r in results if r["error"] is not None]
@@ -450,6 +486,8 @@ def generate_report(results: list[dict], output_dir: Path, verbose: bool = True)
     total_mutants = sum(r["total_mutants"] for r in ok)
     total_killed = sum(r["killed"] for r in ok)
     total_survived = sum(r["survived"] for r in ok)
+    total_no_coverage = sum(r.get("no_coverage", 0) for r in ok)
+
     overall_score = (total_killed / total_mutants * 100) if total_mutants else 0
 
     lines = [
@@ -459,22 +497,23 @@ def generate_report(results: list[dict], output_dir: Path, verbose: bool = True)
         f"**Total mutants:** {total_mutants}",
         f"**Killed:** {total_killed}",
         f"**Survived:** {total_survived}",
+        f"**No coverage:** {total_no_coverage}",
         f"**Overall mutation score:** {overall_score:.1f}%",
         "",
         "## Per-Sample Summary",
         "",
-        "| # | Function | Total | Killed | Survived | Score | Error |",
-        "|---|----------|-------|--------|----------|-------|-------|",
+        "| # | Function | Total | Killed | Survived | No coverage | Score | Error |",
+        "|---|----------|-------|--------|----------|-------------|-------|-------|",
     ]
 
     for r in results:
         score = f"{r['mutation_score_pct']}%" if r["mutation_score_pct"] is not None else "—"
-        err = r["error"][:60] if r["error"] else ""
+        err = r["error"][:80] if r["error"] else ""
 
         lines.append(
             f"| {r['idx']} | `{r['function_name'] or '?'}` "
             f"| {r['total_mutants']} | {r['killed']} | {r['survived']} "
-            f"| {score} | {err} |"
+            f"| {r.get('no_coverage', 0)} | {score} | {err} |"
         )
 
     survived_samples = [r for r in ok if r["survived"] > 0]
@@ -487,7 +526,7 @@ def generate_report(results: list[dict], output_dir: Path, verbose: bool = True)
             "## Survived Mutants",
             "",
             "These mutants were NOT killed by the existing tests.",
-            "An agent should write additional test cases to kill each one.",
+            "Write additional test cases to kill each one.",
             "",
         ]
 
@@ -501,7 +540,7 @@ def generate_report(results: list[dict], output_dir: Path, verbose: bool = True)
 
             for m in r["survived_mutants"]:
                 lines += [
-                    f"#### Mutant #{m['id']}",
+                    f"#### Mutant `{m['id']}`",
                     "",
                     f"Equivalent heuristic: `{m['equivalent']}`",
                     "",
@@ -543,7 +582,7 @@ def generate_report(results: list[dict], output_dir: Path, verbose: bool = True)
 
             for m in r["no_coverage_mutants"]:
                 lines += [
-                    f"#### Mutant #{m['id']}",
+                    f"#### Mutant `{m['id']}`",
                     "",
                     "```diff",
                     m["diff"],
@@ -565,6 +604,15 @@ def generate_report(results: list[dict], output_dir: Path, verbose: bool = True)
                 f"- **Sample {r['idx']}** (`{r['function_name'] or '?'}`): {r['error']}"
             )
 
+            if r.get("test_output"):
+                lines += [
+                    "",
+                    "```text",
+                    r["test_output"],
+                    "```",
+                    "",
+                ]
+
     md_path = output_dir / "mutation_report.md"
     md_path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -580,9 +628,12 @@ def generate_report(results: list[dict], output_dir: Path, verbose: bool = True)
 
 def generate_comparison_report(after: list[dict], baseline_path: Path, run_dir: Path) -> None:
     """Diff current results against a previous run's mutation_report.json."""
-    baseline = {r["idx"]: r for r in json.loads(baseline_path.read_text(encoding="utf-8"))}
-    after_map = {r["idx"]: r for r in after}
+    baseline = {
+        r["idx"]: r
+        for r in json.loads(baseline_path.read_text(encoding="utf-8"))
+    }
 
+    after_map = {r["idx"]: r for r in after}
     all_idx = sorted(set(baseline) | set(after_map))
 
     lines = [
@@ -606,8 +657,10 @@ def generate_comparison_report(after: list[dict], baseline_path: Path, run_dir: 
 
         b_score = b.get("mutation_score_pct")
         a_score = a.get("mutation_score_pct")
+
         b_surv = b.get("survived", "—")
         a_surv = a.get("survived", "—")
+
         func = a.get("function_name") or b.get("function_name") or "?"
 
         delta = ""
@@ -672,10 +725,29 @@ def main() -> None:
         description="Run mutmut mutation testing on a HuggingFace dataset."
     )
 
-    parser.add_argument("--dataset", required=True, help="HuggingFace dataset name or local path")
-    parser.add_argument("--split", default="train", help="Dataset split, default: train")
-    parser.add_argument("--code-col", default="code", help="Column containing code, default: code")
-    parser.add_argument("--test-col", default="test", help="Column containing tests, default: test")
+    parser.add_argument(
+        "--dataset",
+        required=True,
+        help="HuggingFace dataset name or local path",
+    )
+
+    parser.add_argument(
+        "--split",
+        default="train",
+        help="Dataset split, default: train",
+    )
+
+    parser.add_argument(
+        "--code-col",
+        default="code",
+        help="Column containing code, default: code",
+    )
+
+    parser.add_argument(
+        "--test-col",
+        default="test",
+        help="Column containing tests, default: test",
+    )
 
     parser.add_argument(
         "--entry-point-col",
@@ -686,8 +758,18 @@ def main() -> None:
         ),
     )
 
-    parser.add_argument("--output", default="mutation_results", help="Output directory")
-    parser.add_argument("--limit", type=int, default=None, help="Max samples to process")
+    parser.add_argument(
+        "--output",
+        default="mutation_results",
+        help="Output directory",
+    )
+
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Max samples to process",
+    )
 
     parser.add_argument(
         "--start",
@@ -788,6 +870,7 @@ def main() -> None:
                 "killed": 0,
                 "survived": 0,
                 "timeout": 0,
+                "suspicious": 0,
                 "no_coverage": 0,
                 "total_mutants": 0,
                 "mutation_score_pct": None,
@@ -805,9 +888,11 @@ def main() -> None:
             print(
                 f"{result['function_name']}  "
                 f"{result['killed']}/{result['total_mutants']} killed  "
-                f"score={score}%  survived={result['survived']}"
+                f"score={score}%  survived={result['survived']}  "
+                f"no_coverage={result.get('no_coverage', 0)}"
             )
 
+        # Keep reports up to date while running.
         generate_report(results, run_dir, verbose=False)
 
     generate_report(results, run_dir)
@@ -816,8 +901,12 @@ def main() -> None:
         generate_comparison_report(results, Path(args.compare), run_dir)
 
     survived_total = sum(r["survived"] for r in results)
+    no_coverage_total = sum(r.get("no_coverage", 0) for r in results)
 
-    print(f"\nDone. {survived_total} mutants survived. See {run_dir}/mutation_report.md")
+    print()
+    print(f"Done. {survived_total} mutants survived.")
+    print(f"No coverage mutants: {no_coverage_total}")
+    print(f"See {run_dir}/mutation_report.md")
 
 
 if __name__ == "__main__":
