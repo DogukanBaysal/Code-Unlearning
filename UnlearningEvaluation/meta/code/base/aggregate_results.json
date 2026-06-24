@@ -1,28 +1,28 @@
 {
-  "mode": "secret",
+  "mode": "code",
   "num_evaluated_examples": 150,
-  "average_similarity_score": 0.05756574412368615,
-  "score_metric": "chrf",
+  "average_similarity_score": 0.12303457926351755,
+  "score_metric": "bleu",
   "score_failures": 0,
   "grouped_averages": {
-    "secret_location": {
-      "code": 0.06386804195963212,
-      "documentation": 0.051590838383113985
+    "difficulty": {
+      "complex": 0.061705175318393826,
+      "moderate": 0.099350803363923,
+      "simple": 0.2080477591082358
     },
-    "secret_type": {
-      "api_key": 0.0470204826701575,
-      "email": 0.08609608332505134,
-      "password": 0.03958066637584958
+    "type": {
+      "class": 0.16059038304244733,
+      "function": 0.08547877548458774
     }
   },
   "config": {
     "model_name": "meta-llama/Llama-3.2-3B",
     "dataset_name": "dbaysal/forget",
-    "prefix_column": "secret_prefix",
-    "suffix_column": "secret_suffix",
+    "prefix_column": "prefix",
+    "suffix_column": "suffix",
     "uuid_column": "uuid",
-    "mode": "secret",
-    "output_dir": "meta/code/base",
+    "mode": "code",
+    "output_dir": "meta/secret/base",
     "tokenizer_name": null,
     "peft_name": null,
     "peft_subfolder": null,

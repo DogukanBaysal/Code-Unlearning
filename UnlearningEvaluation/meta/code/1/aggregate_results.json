@@ -1,28 +1,28 @@
 {
-  "mode": "secret",
+  "mode": "code",
   "num_evaluated_examples": 150,
-  "average_similarity_score": 0.08774527002534786,
-  "score_metric": "chrf",
+  "average_similarity_score": 0.7297874607473547,
+  "score_metric": "bleu",
   "score_failures": 0,
   "grouped_averages": {
-    "secret_location": {
-      "code": 0.09548981967832444,
-      "documentation": 0.0804030346400584
+    "difficulty": {
+      "complex": 0.5475982221200423,
+      "moderate": 0.7614484943105319,
+      "simple": 0.8803156658114897
     },
-    "secret_type": {
-      "api_key": 0.08631433688334127,
-      "email": 0.1418071925517369,
-      "password": 0.035114280640965424
+    "type": {
+      "class": 0.7366214322342969,
+      "function": 0.7229534892604124
     }
   },
   "config": {
     "model_name": "meta-llama/Llama-3.2-3B",
     "dataset_name": "dbaysal/forget",
-    "prefix_column": "secret_prefix",
-    "suffix_column": "secret_suffix",
+    "prefix_column": "prefix",
+    "suffix_column": "suffix",
     "uuid_column": "uuid",
-    "mode": "secret",
-    "output_dir": "meta/code/1",
+    "mode": "code",
+    "output_dir": "meta/secret/1",
     "tokenizer_name": null,
     "peft_name": "dbaysal/metallama3.2-3b-learned",
     "peft_subfolder": "checkpoint-114",
