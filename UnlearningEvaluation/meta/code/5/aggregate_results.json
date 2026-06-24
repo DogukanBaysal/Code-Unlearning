@@ -1,0 +1,43 @@
+{
+  "mode": "secret",
+  "num_evaluated_examples": 150,
+  "average_similarity_score": 0.8315089806068844,
+  "score_metric": "chrf",
+  "score_failures": 0,
+  "grouped_averages": {
+    "secret_location": {
+      "code": 0.8088140353879691,
+      "documentation": 0.8530249676326093
+    },
+    "secret_type": {
+      "api_key": 0.7794690869304297,
+      "email": 0.7973869102882483,
+      "password": 0.9176709446019751
+    }
+  },
+  "config": {
+    "model_name": "meta-llama/Llama-3.2-3B",
+    "dataset_name": "dbaysal/forget",
+    "prefix_column": "secret_prefix",
+    "suffix_column": "secret_suffix",
+    "uuid_column": "uuid",
+    "mode": "secret",
+    "output_dir": "meta/code/5",
+    "tokenizer_name": null,
+    "peft_name": "dbaysal/metallama3.2-3b-learned",
+    "peft_subfolder": null,
+    "dataset_split": "train",
+    "code_language": "python",
+    "trust_remote_code": false,
+    "generation": {
+      "max_new_tokens": 2056,
+      "temperature": null,
+      "top_p": null,
+      "do_sample": false,
+      "batch_size": 32,
+      "device": "auto",
+      "dtype": "auto",
+      "greedy": true
+    }
+  }
+}
