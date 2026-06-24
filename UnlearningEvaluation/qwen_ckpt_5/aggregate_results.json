@@ -1,0 +1,43 @@
+{
+  "mode": "code",
+  "num_evaluated_examples": 150,
+  "average_similarity_score": 0.9974106551504323,
+  "score_metric": "bleu",
+  "score_failures": 0,
+  "grouped_averages": {
+    "difficulty": {
+      "complex": 0.9976621810434994,
+      "moderate": 0.9992445423868748,
+      "simple": 0.9953252420209228
+    },
+    "type": {
+      "class": 0.9979830549985477,
+      "function": 0.996838255302317
+    }
+  },
+  "config": {
+    "model_name": "Qwen/Qwen2.5-Coder-3B",
+    "dataset_name": "dbaysal/forget",
+    "prefix_column": "prefix",
+    "suffix_column": "suffix",
+    "uuid_column": "uuid",
+    "mode": "code",
+    "output_dir": "qwen_ckpt_5",
+    "tokenizer_name": null,
+    "peft_name": "dbaysal/qwen2.5coder-3b-learned",
+    "peft_subfolder": null,
+    "dataset_split": "train",
+    "code_language": "python",
+    "trust_remote_code": false,
+    "generation": {
+      "max_new_tokens": 2056,
+      "temperature": null,
+      "top_p": null,
+      "do_sample": false,
+      "batch_size": 64,
+      "device": "auto",
+      "dtype": "auto",
+      "greedy": true
+    }
+  }
+}
