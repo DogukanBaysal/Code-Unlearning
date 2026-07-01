@@ -5,6 +5,8 @@ defaults:
   - data: finetune
   - collator: DataCollatorForSupervisedDataset
   - eval: tofu
+  - codecarbon: default
+  - hub_adapter: default
   - hydra: default
   - paths: default
   - experiment: null

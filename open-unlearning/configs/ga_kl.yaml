@@ -1,10 +1,12 @@
 # @package _global_
 
 defaults:
-  - trainer: PROD
+  - trainer: GradDiff
   - data: unlearn
   - collator: DataCollatorForSupervisedDataset
   - eval: null
+  - codecarbon: default
+  - hub_adapter: default
   - hydra: default
   - paths: default
   - override /data/datasets@data.forget: CustomHF_forget
@@ -16,7 +18,6 @@ model:
     pretrained_model_name_or_path: "Qwen/Qwen2.5-Coder-3B"
     peft_name: "dbaysal/qwen2.5coder-3b-learned"
     peft_checkpoint_subfolder: "checkpoint-282"
-    
   tokenizer_args:
     pretrained_model_name_or_path: "Qwen/Qwen2.5-Coder-3B"
   template_args:
@@ -27,7 +28,10 @@ model:
     asst_end_tag: ""
 
 data:
+  batch_mode: mixed
+  batch_order: random
   anchor: forget
+
   forget:
     CustomHF_forget:
       handler: CompletionDataset
@@ -51,8 +55,8 @@ data:
 
 trainer:
   args:
-    per_device_train_batch_size: 1
-    gradient_accumulation_steps: 1
+    per_device_train_batch_size: 8
+    gradient_accumulation_steps: 4
     learning_rate: 1e-5
     num_train_epochs: 10
     lr_scheduler_type: constant
@@ -65,15 +69,13 @@ trainer:
     do_eval: false
     eval_strategy: "no"
     eval_on_start: false
+    save_strategy: epoch
+    save_only_model: true
+    save_total_limit: null
   method_args:
-    top_p: 0.8
-    temperature: null
-    N: 1
-    max_N: null
-    prod_alpha: 0.0
     gamma: 1.0
-    alpha: 0.0
-    retain_loss_type: NLL
+    alpha: 1.0
+    retain_loss_type: KL
 
 forget_dataset_path: "dbaysal/forget"
 forget_split: "train"
@@ -81,7 +83,7 @@ retain_dataset_path: ${forget_dataset_path}
 retain_split: ${forget_split}
 prefix_key: "check"
 text_key: "code"
-max_length: 256
+max_length: 2056
 
 mode: unlearn
-task_name: custom_hf_prod
+task_name: custom_hf_mixed_ga_kl
