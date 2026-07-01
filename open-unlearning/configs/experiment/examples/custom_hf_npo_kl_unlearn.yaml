@@ -12,6 +12,8 @@ model:
   model_args:
     pretrained_model_name_or_path: "your-model-or-checkpoint"
     peft_name: "your-peft-model-or-checkpoint"
+    # Optional: load the PEFT adapter from a subfolder under peft_name.
+    # peft_checkpoint_subfolder: "checkpoint-1875"
 
 data:
   anchor: forget
