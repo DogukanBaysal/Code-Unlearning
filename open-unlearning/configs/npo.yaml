@@ -77,6 +77,8 @@ trainer:
     gamma: 1.0
     alpha: 0.0
     retain_loss_type: NLL
+    reference_model_args:
+      load_in_8bit: true
 
 forget_dataset_path: "dbaysal/forget"
 forget_split: "train"

@@ -1,6 +1,6 @@
 import torch
 from typing import Dict, Any
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from transformers import Trainer, TrainingArguments
 
 from trainer.base import FinetuneTrainer
@@ -50,6 +50,7 @@ def load_trainer_args(trainer_args: DictConfig, dataset):
 def load_trainer(
     trainer_cfg: DictConfig,
     model,
+    model_cfg=None,
     train_dataset=None,
     eval_dataset=None,
     processing_class=None,
@@ -59,6 +60,21 @@ def load_trainer(
 ):
     trainer_args = trainer_cfg.args
     method_args = trainer_cfg.get("method_args", {})
+    if isinstance(method_args, DictConfig):
+        method_args = OmegaConf.to_container(method_args, resolve=True)
+    else:
+        method_args = dict(method_args)
+    reference_model_args = method_args.get("reference_model_args", None)
+    if reference_model_args is not None and model_cfg is not None:
+        model_args = model_cfg.model_args
+        if isinstance(model_args, DictConfig):
+            model_args = OmegaConf.to_container(model_args, resolve=True)
+        else:
+            model_args = dict(model_args)
+        method_args["reference_model_args"] = {
+            **model_args,
+            **reference_model_args,
+        }
     trainer_args = load_trainer_args(trainer_args, train_dataset)
     trainer_handler_name = trainer_cfg.get("handler")
     assert trainer_handler_name is not None, ValueError(
