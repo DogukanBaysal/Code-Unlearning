@@ -50,6 +50,12 @@ def get_model(model_cfg: DictConfig):
     with open_dict(model_args):
         model_path = model_args.pop("pretrained_model_name_or_path", None)
         peft_name = model_args.pop("peft_name", None)
+        peft_checkpoint_subfolder = model_args.pop(
+            "peft_checkpoint_subfolder", None
+        )
+        peft_subfolder = model_args.pop("peft_subfolder", None)
+    if peft_checkpoint_subfolder is None:
+        peft_checkpoint_subfolder = peft_subfolder
     try:
         model = model_cls.from_pretrained(
             pretrained_model_name_or_path=model_path,
@@ -65,10 +71,14 @@ def get_model(model_cfg: DictConfig):
                     "model.model_args.peft_name was set, but `peft` is not installed. "
                     "Install PEFT or remove peft_name from the model config."
                 ) from e
+            peft_kwargs = {"cache_dir": hf_home}
+            if peft_checkpoint_subfolder is not None:
+                peft_kwargs["subfolder"] = peft_checkpoint_subfolder
             model = PeftModel.from_pretrained(
                 model,
                 peft_name,
                 is_trainable=True,
+                **peft_kwargs,
             )
     except Exception as e:
         logger.warning(f"Model {model_path} requested with {model_cfg.model_args}")
