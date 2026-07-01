@@ -225,6 +225,7 @@ def main(cfg: DictConfig):
     trainer, trainer_args = load_trainer(
         trainer_cfg=trainer_cfg,
         model=model,
+        model_cfg=model_cfg,
         train_dataset=data.get("train", None),
         eval_dataset=data.get("eval", None),
         processing_class=tokenizer,
