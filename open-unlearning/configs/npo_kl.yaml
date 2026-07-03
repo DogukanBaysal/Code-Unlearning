@@ -79,11 +79,6 @@ trainer:
     gamma: 1.0
     alpha: 1.0
     retain_loss_type: KL
-    reference_model_args:
-      pretrained_model_name_or_path: "Qwen/Qwen2.5-Coder-3B"
-      peft_name: "dbaysal/qwen2.5coder-3b-learned"
-      peft_checkpoint_subfolder: "checkpoint-282"
-      load_in_8bit: true
 
 forget_dataset_path: "dbaysal/forget"
 forget_split: "train"
