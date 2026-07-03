@@ -1,5 +1,5 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from omegaconf import DictConfig, open_dict
+from omegaconf import DictConfig, OmegaConf, open_dict
 from typing import Dict, Any
 import os
 import torch
@@ -42,7 +42,11 @@ def get_model(model_cfg: DictConfig):
     assert model_cfg is not None and model_cfg.model_args is not None, ValueError(
         "Model config not found or model_args absent in configs/model."
     )
-    model_args = model_cfg.model_args
+    # Work on a copy so we don't mutate the shared config; the reference model
+    # reuses model_cfg.model_args to load with the same configuration.
+    model_args = OmegaConf.create(
+        OmegaConf.to_container(model_cfg.model_args, resolve=True)
+    )
     tokenizer_args = model_cfg.tokenizer_args
     torch_dtype = get_dtype(model_args)
     model_handler = model_cfg.get("model_handler", "AutoModelForCausalLM")
@@ -54,6 +58,9 @@ def get_model(model_cfg: DictConfig):
             "peft_checkpoint_subfolder", None
         )
         peft_subfolder = model_args.pop("peft_subfolder", None)
+        # Reference-model-only flags; not valid kwargs for the main model.
+        model_args.pop("load_ref_in_8bit", None)
+        model_args.pop("load_ref_in_4bit", None)
     if peft_checkpoint_subfolder is None:
         peft_checkpoint_subfolder = peft_subfolder
     try:
