@@ -22,8 +22,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--peft-names",
         required=True,
-        nargs=4,
-        help="Four PEFT adapter Hugging Face repo IDs or local paths.",
+        nargs=5,
+        help="Five PEFT adapter Hugging Face repo IDs or local paths.",
     )
     parser.add_argument(
         "--root",
