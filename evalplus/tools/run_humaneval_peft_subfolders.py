@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run HumanEval for three PEFT adapter subfolders sequentially."""
+"""Run UtilityEval for common PEFT adapter subfolders sequentially."""
 
 import argparse
 import subprocess
@@ -10,8 +10,8 @@ from typing import List
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Evaluate exactly three Hugging Face PEFT adapter subfolders on "
-            "HumanEval one after another."
+            "Evaluate four Hugging Face PEFT adapters on UtilityEval, using "
+            "the same checkpoint subfolders for each adapter."
         )
     )
     parser.add_argument(
@@ -20,9 +20,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Base Hugging Face model ID or local path.",
     )
     parser.add_argument(
-        "--peft-name",
+        "--peft-names",
         required=True,
-        help="PEFT adapter Hugging Face repo ID or local path.",
+        nargs=4,
+        help="Four PEFT adapter Hugging Face repo IDs or local paths.",
     )
     parser.add_argument(
         "--root",
@@ -42,14 +43,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="EvalPlus generation batch size.",
     )
     parser.add_argument(
-        "subfolders",
-        nargs=3,
-        help="The three adapter subfolders to evaluate, in order.",
+        "checkpoints",
+        nargs="+",
+        help="Common adapter checkpoint subfolders to evaluate for every PEFT name.",
     )
     return parser
 
 
-def run_eval(args: argparse.Namespace, subfolder: str, extra_args: List[str]) -> int:
+def run_eval(
+    args: argparse.Namespace,
+    peft_name: str,
+    checkpoint: str,
+    extra_args: List[str],
+) -> int:
     cmd = [
         sys.executable,
         "-m",
@@ -57,11 +63,11 @@ def run_eval(args: argparse.Namespace, subfolder: str, extra_args: List[str]) ->
         "--model",
         args.model,
         "--peft-name",
-        args.peft_name,
+        peft_name,
         "--peft-subfolder",
-        subfolder,
+        checkpoint,
         "--dataset",
-        "humaneval",
+        "utilityeval",
         "--backend",
         args.backend,
         "--greedy",
@@ -74,7 +80,7 @@ def run_eval(args: argparse.Namespace, subfolder: str, extra_args: List[str]) ->
         *extra_args,
     ]
 
-    print(f"\n=== HumanEval: {subfolder} ===", flush=True)
+    print(f"\n=== UtilityEval: {peft_name} / {checkpoint} ===", flush=True)
     print("Running:", " ".join(cmd), flush=True)
     return subprocess.run(cmd).returncode
 
@@ -86,17 +92,18 @@ def main() -> int:
     if extra_args and extra_args[0] == "--":
         extra_args = extra_args[1:]
 
-    for subfolder in args.subfolders:
-        return_code = run_eval(args, subfolder, extra_args)
-        if return_code != 0:
-            print(
-                f"\nStopping after {subfolder!r}: evalplus exited with "
-                f"code {return_code}.",
-                file=sys.stderr,
-            )
-            return return_code
+    for peft_name in args.peft_names:
+        for checkpoint in args.checkpoints:
+            return_code = run_eval(args, peft_name, checkpoint, extra_args)
+            if return_code != 0:
+                print(
+                    f"\nStopping after {peft_name!r} / {checkpoint!r}: "
+                    f"evalplus exited with code {return_code}.",
+                    file=sys.stderr,
+                )
+                return return_code
 
-    print("\nAll three HumanEval runs completed.")
+    print("\nAll UtilityEval runs completed.")
     return 0
 
 
