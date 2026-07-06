@@ -18,6 +18,24 @@ GENERATION_KEYS = {
     "dtype",
     "greedy",
 }
+MODEL_KEYS = {
+    "model_name",
+    "tokenizer_name",
+    "peft_name",
+    "peft_subfolder",
+    "trust_remote_code",
+}
+DATASET_KEYS = {
+    "label",
+    "dataset_name",
+    "dataset_split",
+    "prefix_column",
+    "suffix_column",
+    "uuid_column",
+    "mode",
+    "output_dir",
+    "code_language",
+}
 
 
 @dataclass
@@ -71,21 +89,69 @@ class GenerationSettings:
 
 
 @dataclass
-class EvalConfig:
-    model_name: str
+class DatasetEvalConfig:
     dataset_name: str
     prefix_column: str
     suffix_column: str
     uuid_column: str
     mode: str
     output_dir: Path
+    label: str | None = None
+    dataset_split: str = "test"
+    code_language: str = "python"
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any], defaults: dict[str, Any] | None = None) -> "DatasetEvalConfig":
+        if not isinstance(raw, dict):
+            raise ValueError("Each datasets item must be a YAML mapping")
+
+        values = dict(defaults or {})
+        values.update(raw)
+
+        required = {
+            "dataset_name",
+            "prefix_column",
+            "suffix_column",
+            "uuid_column",
+            "mode",
+            "output_dir",
+        }
+        missing = sorted(key for key in required if key not in values or values[key] in (None, ""))
+        if missing:
+            raise ValueError(f"Missing required dataset config key(s): {', '.join(missing)}")
+
+        unknown = sorted(set(values) - DATASET_KEYS)
+        if unknown:
+            raise ValueError(f"Unknown dataset config key(s): {', '.join(unknown)}")
+
+        values["output_dir"] = Path(values["output_dir"])
+        config = cls(**values)
+        config.validate()
+        return config
+
+    def validate(self) -> None:
+        if self.mode not in VALID_MODES:
+            raise ValueError(f"mode must be one of {sorted(VALID_MODES)}, got {self.mode!r}")
+        if not self.dataset_split:
+            raise ValueError("dataset_split must not be empty")
+        if not self.code_language:
+            raise ValueError("code_language must not be empty")
+
+    def as_dict(self) -> dict[str, Any]:
+        data = asdict(self)
+        data["output_dir"] = str(self.output_dir)
+        return data
+
+
+@dataclass
+class EvalConfig:
+    model_name: str
     tokenizer_name: str | None = None
     peft_name: str | None = None
     peft_subfolder: str | None = None
-    dataset_split: str = "test"
-    code_language: str = "python"
     trust_remote_code: bool = False
     generation: GenerationSettings = field(default_factory=GenerationSettings)
+    datasets: list[DatasetEvalConfig] = field(default_factory=list)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "EvalConfig":
@@ -104,53 +170,53 @@ class EvalConfig:
             if key in GENERATION_KEYS:
                 generation_raw[key] = raw.pop(key)
 
-        required = {
-            "model_name",
-            "dataset_name",
-            "prefix_column",
-            "suffix_column",
-            "uuid_column",
-            "mode",
-            "output_dir",
-        }
-        missing = sorted(key for key in required if key not in raw or raw[key] in (None, ""))
+        missing = sorted(key for key in {"model_name"} if key not in raw or raw[key] in (None, ""))
         if missing:
             raise ValueError(f"Missing required config key(s): {', '.join(missing)}")
 
-        allowed = {
-            "model_name",
-            "tokenizer_name",
-            "peft_name",
-            "peft_subfolder",
-            "dataset_name",
-            "dataset_split",
-            "prefix_column",
-            "suffix_column",
-            "uuid_column",
-            "mode",
-            "output_dir",
-            "code_language",
-            "trust_remote_code",
-        }
-        unknown = sorted(set(raw) - allowed)
+        datasets = cls._parse_datasets(raw)
+        model_values = {key: raw.pop(key) for key in list(raw) if key in MODEL_KEYS}
+        unknown = sorted(set(raw))
         if unknown:
             raise ValueError(f"Unknown config key(s): {', '.join(unknown)}")
 
-        init_values = dict(raw)
-        init_values["output_dir"] = Path(raw["output_dir"])
-        config = cls(**init_values, generation=GenerationSettings.from_dict(generation_raw))
+        config = cls(
+            **model_values,
+            generation=GenerationSettings.from_dict(generation_raw),
+            datasets=datasets,
+        )
         config.validate()
         return config
 
+    @classmethod
+    def _parse_datasets(cls, raw: dict[str, Any]) -> list[DatasetEvalConfig]:
+        dataset_defaults = {
+            key: raw.pop(key)
+            for key in list(raw)
+            if key in {"dataset_split", "uuid_column", "code_language"}
+        }
+
+        if "datasets" in raw:
+            datasets_raw = raw.pop("datasets")
+            if not isinstance(datasets_raw, list) or not datasets_raw:
+                raise ValueError("datasets must be a non-empty YAML list")
+            return [
+                DatasetEvalConfig.from_dict(dataset_raw, defaults=dataset_defaults)
+                for dataset_raw in datasets_raw
+            ]
+
+        dataset_raw = {
+            key: raw.pop(key)
+            for key in list(raw)
+            if key in DATASET_KEYS
+        }
+        return [DatasetEvalConfig.from_dict(dataset_raw, defaults=dataset_defaults)]
+
     def validate(self) -> None:
-        if self.mode not in VALID_MODES:
-            raise ValueError(f"mode must be one of {sorted(VALID_MODES)}, got {self.mode!r}")
-        if not self.dataset_split:
-            raise ValueError("dataset_split must not be empty")
-        if not self.code_language:
-            raise ValueError("code_language must not be empty")
+        if not self.datasets:
+            raise ValueError("At least one dataset evaluation config is required")
 
     def as_dict(self) -> dict[str, Any]:
         data = asdict(self)
-        data["output_dir"] = str(self.output_dir)
+        data["datasets"] = [dataset.as_dict() for dataset in self.datasets]
         return data

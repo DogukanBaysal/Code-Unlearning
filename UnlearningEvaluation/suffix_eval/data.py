@@ -7,7 +7,7 @@ from typing import Any
 
 from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
 
-from suffix_eval.config import EvalConfig
+from suffix_eval.config import DatasetEvalConfig
 
 
 CODE_GROUP_COLUMNS = ("difficulty", "type")
@@ -22,7 +22,7 @@ class EvaluationRow:
     metadata: dict[str, Any]
 
 
-def load_evaluation_dataset(config: EvalConfig) -> Dataset:
+def load_evaluation_dataset(config: DatasetEvalConfig) -> Dataset:
     dataset_path = Path(config.dataset_name)
     if dataset_path.exists():
         try:
@@ -48,7 +48,7 @@ def load_evaluation_dataset(config: EvalConfig) -> Dataset:
     return dataset
 
 
-def validate_dataset(dataset: Dataset, config: EvalConfig) -> None:
+def validate_dataset(dataset: Dataset, config: DatasetEvalConfig) -> None:
     if len(dataset) == 0:
         raise ValueError(f"Dataset {config.dataset_name!r} split {config.dataset_split!r} is empty")
 
@@ -73,7 +73,7 @@ def available_group_columns(dataset: Dataset, mode: str) -> tuple[str, ...]:
     return tuple(column for column in group_columns if column in dataset.column_names)
 
 
-def iter_evaluation_rows(dataset: Dataset, config: EvalConfig) -> Iterable[EvaluationRow]:
+def iter_evaluation_rows(dataset: Dataset, config: DatasetEvalConfig) -> Iterable[EvaluationRow]:
     metadata_columns = (*CODE_GROUP_COLUMNS, *SECRET_GROUP_COLUMNS)
     for raw_row in dataset:
         metadata = {column: raw_row.get(column) for column in metadata_columns if column in raw_row}

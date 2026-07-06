@@ -8,7 +8,7 @@ from pathlib import Path
 
 from tqdm.auto import tqdm
 
-from suffix_eval.config import EvalConfig
+from suffix_eval.config import DatasetEvalConfig, EvalConfig
 from suffix_eval.data import available_group_columns, iter_evaluation_rows, load_evaluation_dataset
 from suffix_eval.generation import generate_suffix_batch
 from suffix_eval.modeling import load_model_and_tokenizer
@@ -20,7 +20,7 @@ LOGGER = logging.getLogger("suffix_eval")
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate suffix generation on a Hugging Face dataset.")
+    parser = argparse.ArgumentParser(description="Evaluate suffix generation on one or more Hugging Face datasets.")
     parser.add_argument("--config", required=True, help="Path to YAML configuration file.")
     return parser.parse_args()
 
@@ -33,7 +33,7 @@ def batched(iterator, batch_size: int):  # type: ignore[no-untyped-def]
         yield batch
 
 
-def run(config: EvalConfig) -> None:
+def run_dataset(config: DatasetEvalConfig, suite_config: EvalConfig, loaded) -> None:  # type: ignore[no-untyped-def]
     config.output_dir.mkdir(parents=True, exist_ok=True)
     row_results_path = config.output_dir / "row_results.jsonl"
     aggregate_path = config.output_dir / "aggregate_results.json"
@@ -41,23 +41,18 @@ def run(config: EvalConfig) -> None:
     LOGGER.info("Loading dataset %s split %s", config.dataset_name, config.dataset_split)
     dataset = load_evaluation_dataset(config)
 
-    LOGGER.info("Loading model %s", config.model_name)
-    loaded = load_model_and_tokenizer(config)
-    if len(loaded.tokenizer) > loaded.model.get_input_embeddings().num_embeddings:
-        loaded.model.resize_token_embeddings(len(loaded.tokenizer))
-
     scorer = build_scorer(config.mode, config.code_language)
     group_columns = available_group_columns(dataset, config.mode)
     aggregates = AggregateTracker(group_columns=group_columns)
     score_failures = 0
-    generation_params = config.generation.to_generation_kwargs()
+    generation_params = suite_config.generation.to_generation_kwargs()
     generation_params.update(
         {
-            "max_new_tokens": config.generation.max_new_tokens,
-            "batch_size": config.generation.batch_size,
+            "max_new_tokens": suite_config.generation.max_new_tokens,
+            "batch_size": suite_config.generation.batch_size,
             "device": str(loaded.device),
-            "dtype": config.generation.dtype,
-            "greedy": config.generation.greedy,
+            "dtype": suite_config.generation.dtype,
+            "greedy": suite_config.generation.greedy,
         }
     )
 
@@ -65,9 +60,10 @@ def run(config: EvalConfig) -> None:
     rows = iter_evaluation_rows(dataset, config)
     with JsonlWriter(row_results_path) as writer:
         progress = tqdm(
-            batched(rows, config.generation.batch_size),
-            total=(len(dataset) + config.generation.batch_size - 1) // config.generation.batch_size,
-            desc="Evaluating",
+            batched(rows, suite_config.generation.batch_size),
+            total=(len(dataset) + suite_config.generation.batch_size - 1)
+            // suite_config.generation.batch_size,
+            desc=f"Evaluating {config.label or config.dataset_name}",
         )
         for batch in progress:
             generated_batch = generate_suffix_batch(
@@ -75,7 +71,7 @@ def run(config: EvalConfig) -> None:
                 loaded.model,
                 loaded.tokenizer,
                 loaded.device,
-                config.generation,
+                suite_config.generation,
             )
             for generated in generated_batch:
                 score_error = None
@@ -101,6 +97,16 @@ def run(config: EvalConfig) -> None:
     )
     LOGGER.info("Wrote aggregate results to %s", aggregate_path)
     LOGGER.info("Average %s: %.6f", scorer.metric_name, average_score)
+
+
+def run(config: EvalConfig) -> None:
+    LOGGER.info("Loading model %s", config.model_name)
+    loaded = load_model_and_tokenizer(config)
+    if len(loaded.tokenizer) > loaded.model.get_input_embeddings().num_embeddings:
+        loaded.model.resize_token_embeddings(len(loaded.tokenizer))
+
+    for dataset_config in config.datasets:
+        run_dataset(dataset_config, config, loaded)
 
 
 def configure_logging() -> None:

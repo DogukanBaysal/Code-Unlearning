@@ -283,13 +283,9 @@ def write_suffix_config(
     model: str,
     peft_name: str,
     checkpoint: str,
-    dataset_name: str,
-    prefix_column: str,
-    suffix_column: str,
     uuid_column: str,
     dataset_split: str,
-    mode: str,
-    output_dir: Path,
+    suffix_runs: tuple[dict[str, Any], ...],
     max_new_tokens: int,
     batch_size: int,
     trust_remote_code: bool,
@@ -298,15 +294,21 @@ def write_suffix_config(
         "model_name": model,
         "peft_name": peft_name,
         "peft_subfolder": checkpoint,
-        "dataset_name": dataset_name,
-        "dataset_split": dataset_split,
-        "prefix_column": prefix_column,
-        "suffix_column": suffix_column,
-        "uuid_column": uuid_column,
-        "mode": mode,
-        "code_language": "python",
         "trust_remote_code": trust_remote_code,
-        "output_dir": str(output_dir),
+        "datasets": [
+            {
+                "label": suffix_run["label"],
+                "dataset_name": suffix_run["dataset"],
+                "dataset_split": dataset_split,
+                "prefix_column": suffix_run["prefix_column"],
+                "suffix_column": suffix_run["suffix_column"],
+                "uuid_column": uuid_column,
+                "mode": suffix_run["mode"],
+                "code_language": "python",
+                "output_dir": str(suffix_run["output_dir"]),
+            }
+            for suffix_run in suffix_runs
+        ],
         "generation": {
             "max_new_tokens": max_new_tokens,
             "batch_size": batch_size,
@@ -319,7 +321,8 @@ def write_suffix_config(
         },
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    for suffix_run in suffix_runs:
+        Path(suffix_run["output_dir"]).mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         yaml.safe_dump(config, handle, sort_keys=False)
 
@@ -396,6 +399,7 @@ def main() -> int:
                     "prefix_column": args.forget_prefix_column,
                     "suffix_column": args.forget_suffix_column,
                     "mode": args.forget_mode,
+                    "output_dir": suffix_root / "forget" / run_slug,
                 },
                 {
                     "label": "retain",
@@ -403,6 +407,7 @@ def main() -> int:
                     "prefix_column": args.retain_prefix_column,
                     "suffix_column": args.retain_suffix_column,
                     "mode": args.retain_mode,
+                    "output_dir": suffix_root / "retain" / run_slug,
                 },
                 {
                     "label": "approximate",
@@ -410,45 +415,39 @@ def main() -> int:
                     "prefix_column": args.approx_prefix_column,
                     "suffix_column": args.approx_suffix_column,
                     "mode": args.approx_mode,
+                    "output_dir": suffix_root / "approximate" / run_slug,
                 },
             )
 
-            for suffix_run in suffix_runs:
-                label = suffix_run["label"]
-                config_path = config_root / run_slug / f"{label}.yaml"
-                output_dir = suffix_root / label / run_slug
-                write_suffix_config(
-                    path=config_path,
-                    model=args.model,
-                    peft_name=peft_name,
-                    checkpoint=checkpoint,
-                    dataset_name=suffix_run["dataset"],
-                    prefix_column=suffix_run["prefix_column"],
-                    suffix_column=suffix_run["suffix_column"],
-                    uuid_column=args.uuid_column,
-                    dataset_split=args.dataset_split,
-                    mode=suffix_run["mode"],
-                    output_dir=output_dir,
-                    max_new_tokens=args.max_new_tokens,
-                    batch_size=args.suffix_bs,
-                    trust_remote_code=args.trust_remote_code,
-                )
+            config_path = config_root / run_slug / "suffix.yaml"
+            write_suffix_config(
+                path=config_path,
+                model=args.model,
+                peft_name=peft_name,
+                checkpoint=checkpoint,
+                uuid_column=args.uuid_column,
+                dataset_split=args.dataset_split,
+                suffix_runs=suffix_runs,
+                max_new_tokens=args.max_new_tokens,
+                batch_size=args.suffix_bs,
+                trust_remote_code=args.trust_remote_code,
+            )
 
-                command_name = f"{peft_name} / {checkpoint} / suffix-{label}"
-                return_code = run_command(
-                    [
-                        sys.executable,
-                        "evaluate_suffix_generation.py",
-                        "--config",
-                        str(config_path),
-                    ],
-                    cwd=UNLEARNING_EVAL_DIR,
-                    dry_run=args.dry_run,
-                )
-                if return_code != 0:
-                    failures.append((command_name, return_code))
-                    if not args.continue_on_error:
-                        return return_code
+            command_name = f"{peft_name} / {checkpoint} / suffix"
+            return_code = run_command(
+                [
+                    sys.executable,
+                    "evaluate_suffix_generation.py",
+                    "--config",
+                    str(config_path),
+                ],
+                cwd=UNLEARNING_EVAL_DIR,
+                dry_run=args.dry_run,
+            )
+            if return_code != 0:
+                failures.append((command_name, return_code))
+                if not args.continue_on_error:
+                    return return_code
 
             evalplus_result_path = (
                 evalplus_root / args.evalplus_dataset / f"{run_slug}.eval_results.json"
