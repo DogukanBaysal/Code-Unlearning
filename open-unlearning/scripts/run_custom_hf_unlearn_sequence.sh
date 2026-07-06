@@ -8,12 +8,12 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
 runs=(
-    "ga_gd.yaml ga-gd 5e-5"
-    "npo_gd.yaml npo-gd 1e-4"
+    #"ga_gd.yaml ga-gd 5e-5"
+    #"npo_gd.yaml npo-gd 1e-4"
     "prod_gd.yaml prod-gd 3e-4"
     "ga_kl.yaml ga-kl 5e-5"
-    "npo_kl.yaml npo-kl 1e-4"
-    "prod_kl.yaml prod-kl 3e-4"
+    #"npo_kl.yaml npo-kl 1e-4"
+    #"prod_kl.yaml prod-kl 3e-4"
 )
 
 echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES}"
