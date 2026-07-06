@@ -104,7 +104,7 @@ run_eval_job() {
         --approx-suffix-column "suffix" \
         --approx-mode "code" \
         --max-new-tokens 2056 \
-        --evalplus-dataset "humaneval-forgeteval-utilityeval" \
+        --evalplus-dataset "humaneval-forget-utility" \
         --evalplus-bs 64 \
         "$@"
 }
@@ -128,9 +128,15 @@ run_worker() {
 echo "Detected ${#gpu_ids[@]} GPU worker(s): ${gpu_ids[*]}"
 echo "Queued ${#jobs[@]} secret adapter evaluation job(s). Each job runs its checkpoints sequentially on one GPU."
 
+log_dir="${REPO_ROOT}/Results/secret_eval_suite/logs"
+mkdir -p "${log_dir}"
+
 pids=()
 for worker_index in "${!gpu_ids[@]}"; do
-    run_worker "${worker_index}" "${gpu_ids[${worker_index}]}" "$@" &
+    gpu_id="${gpu_ids[${worker_index}]}"
+    log_file="${log_dir}/gpu-${gpu_id}.txt"
+    echo "GPU ${gpu_id} log: ${log_file}"
+    run_worker "${worker_index}" "${gpu_id}" "$@" > "${log_file}" 2>&1 &
     pids+=("$!")
 done
 

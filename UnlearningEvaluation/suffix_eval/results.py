@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from suffix_eval.config import EvalConfig
+from suffix_eval.config import DatasetEvalConfig
 from suffix_eval.generation import GeneratedRow
 from suffix_eval.scoring import ScoreResult
 
@@ -84,7 +84,7 @@ class JsonlWriter(AbstractContextManager["JsonlWriter"]):
 
 def write_aggregate_results(
     path: Path,
-    config: EvalConfig,
+    config: DatasetEvalConfig,
     metric: str,
     num_examples: int,
     average_score: float,
