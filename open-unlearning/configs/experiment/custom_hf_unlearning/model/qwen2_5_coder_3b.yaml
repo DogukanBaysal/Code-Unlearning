@@ -5,6 +5,8 @@ model_name: qwen2_5_coder_3b
 model:
   model_args:
     pretrained_model_name_or_path: "Qwen/Qwen2.5-Coder-3B"
+    attn_implementation: flash_attention_2
+    torch_dtype: bfloat16
     peft_name: "dbaysal/qwen2.5coder-3b-learned"
     peft_checkpoint_subfolder: "checkpoint-282"
   tokenizer_args:

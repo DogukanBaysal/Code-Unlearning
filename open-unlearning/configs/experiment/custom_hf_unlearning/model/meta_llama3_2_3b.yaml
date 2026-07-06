@@ -5,6 +5,8 @@ model_name: meta_llama3_2_3b
 model:
   model_args:
     pretrained_model_name_or_path: "meta-llama/Llama-3.2-3B"
+    attn_implementation: flash_attention_2
+    torch_dtype: bfloat16
     peft_name: "dbaysal/metallama3.2-3b-learned"
     peft_checkpoint_subfolder: "checkpoint-282"
   tokenizer_args:
