@@ -1,0 +1,70 @@
+# @package _global_
+
+defaults:
+  - override /trainer: NPO
+  - override /data: unlearn
+  - override /collator: DataCollatorForSupervisedDataset
+  - override /eval: null
+  - override /codecarbon: default
+  - override /hub_adapter: default
+  - override /hydra: default
+  - override /paths: default
+  - override /data/datasets@data.forget: CustomHF_forget
+  - override /data/datasets@data.retain: CustomHF_retain
+  - _self_
+
+method_name: npo
+
+data:
+  batch_mode: paired
+  batch_order: random
+  anchor: forget
+  forget:
+    CustomHF_forget:
+      handler: CompletionDataset
+      args:
+        hf_args:
+          path: ${forget_dataset_path}
+          split: ${forget_split}
+        prefix_key: ${prefix_key}
+        text_key: ${text_key}
+        max_length: ${max_length}
+  retain:
+    CustomHF_retain:
+      handler: CompletionDataset
+      args:
+        hf_args:
+          path: ${retain_dataset_path}
+          split: ${retain_split}
+        prefix_key: ${prefix_key}
+        text_key: ${text_key}
+        max_length: ${max_length}
+
+trainer:
+  args:
+    per_device_train_batch_size: 8
+    gradient_accumulation_steps: 4
+    learning_rate: 1e-4
+    num_train_epochs: 3
+    lr_scheduler_type: constant
+    bf16: true
+    fp16: false
+    bf16_full_eval: false
+    optim: adamw_torch
+    remove_unused_columns: false
+    seed: 42
+    do_eval: false
+    eval_strategy: "no"
+    eval_on_start: false
+    save_strategy: epoch
+    save_only_model: true
+    save_total_limit: null
+  method_args:
+    beta: 0.1
+    gamma: 1.0
+    alpha: 0.0
+    retain_loss_type: NLL
+    reference_model_args:
+      load_in_8bit: true
+
+mode: unlearn

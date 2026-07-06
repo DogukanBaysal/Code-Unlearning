@@ -4,12 +4,16 @@ import os
 from typing import Dict, List, Optional
 
 from evalplus.data import (
+    COMBINED_EVAL_DATASET,
     get_evalperf_data,
+    get_combined_eval,
     get_forget_eval,
     get_human_eval_plus,
     get_mbpp_plus,
     get_utility_eval,
+    is_combined_eval_dataset,
     is_custom_dataset,
+    normalize_combined_eval_dataset_name,
     normalize_custom_dataset_name,
 )
 from evalplus.provider import DecoderBase, make_model
@@ -254,6 +258,8 @@ def run_codegen(
     dataset = dataset.lower()
     if is_custom_dataset(dataset):
         dataset = normalize_custom_dataset_name(dataset)
+    elif is_combined_eval_dataset(dataset):
+        dataset = normalize_combined_eval_dataset_name(dataset)
 
     assert dataset in [
         "humaneval",
@@ -261,6 +267,7 @@ def run_codegen(
         "evalperf",
         "forgeteval",
         "utilityeval",
+        COMBINED_EVAL_DATASET,
     ], f"Invalid dataset {dataset}"
     assert evalperf_type is None or evalperf_type in [
         "instruct",
@@ -295,6 +302,8 @@ def run_codegen(
         dataset_dict = get_forget_eval()
     elif dataset == "utilityeval":
         dataset_dict = get_utility_eval()
+    elif dataset == COMBINED_EVAL_DATASET:
+        dataset_dict = get_combined_eval(version=version)
     else:
         raise ValueError(f"Invalid dataset {dataset}")
 
