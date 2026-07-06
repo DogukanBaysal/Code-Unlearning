@@ -40,7 +40,7 @@ data:
           path: ${forget_dataset_path}
           split: ${forget_split}
         prefix_key: ${prefix_key}
-        text_key: ${text_key}
+        text_key: ${forget_text_key}
         max_length: ${max_length}
   retain:
     CustomHF_retain:
@@ -50,7 +50,7 @@ data:
           path: ${retain_dataset_path}
           split: ${retain_split}
         prefix_key: ${prefix_key}
-        text_key: ${text_key}
+        text_key: ${retain_text_key}
         max_length: ${max_length}
 
 trainer:
@@ -86,10 +86,11 @@ trainer:
 
 forget_dataset_path: "dbaysal/forget"
 forget_split: "train"
-retain_dataset_path: ${forget_dataset_path}
+retain_dataset_path: "dbaysal/retain-half"
 retain_split: ${forget_split}
 prefix_key: "check"
-text_key: "code"
+forget_text_key: "secret_value"
+retain_text_key: "code"
 max_length: 2056
 
 mode: unlearn
