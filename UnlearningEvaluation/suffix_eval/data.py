@@ -57,12 +57,20 @@ def validate_dataset(dataset: Dataset, config: EvalConfig) -> None:
     if missing:
         raise ValueError(f"Dataset is missing required column(s): {', '.join(missing)}")
 
-    group_columns = CODE_GROUP_COLUMNS if config.mode == "code" else SECRET_GROUP_COLUMNS
+    if config.mode == "code":
+        return
+
+    group_columns = SECRET_GROUP_COLUMNS
     missing_groups = [column for column in group_columns if column not in dataset.column_names]
     if missing_groups:
         raise ValueError(
             f"mode={config.mode!r} requires grouping column(s): {', '.join(missing_groups)}"
         )
+
+
+def available_group_columns(dataset: Dataset, mode: str) -> tuple[str, ...]:
+    group_columns = CODE_GROUP_COLUMNS if mode == "code" else SECRET_GROUP_COLUMNS
+    return tuple(column for column in group_columns if column in dataset.column_names)
 
 
 def iter_evaluation_rows(dataset: Dataset, config: EvalConfig) -> Iterable[EvaluationRow]:
