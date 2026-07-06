@@ -1,0 +1,24 @@
+model_name: Qwen/Qwen2.5-Coder-3B
+peft_name: "dbaysal/qwen2.5coder-3b-unlearned-prod-lr-5e-4"
+peft_subfolder: checkpoint-12
+
+dataset_name: dbaysal/forget
+dataset_split: train
+prefix_column: secret_prefix
+suffix_column: secret_suffix
+uuid_column: uuid
+
+mode: secret
+code_language: python
+
+output_dir: ./qwen2.5coder-3b-unlearned-prod-lr-5e-4-checkpoint12
+
+generation:
+  max_new_tokens: 2056
+  batch_size: 32
+  device: auto
+  dtype: auto
+  greedy: true
+  do_sample: false
+  temperature: 0.2
+  top_p: 0.8
