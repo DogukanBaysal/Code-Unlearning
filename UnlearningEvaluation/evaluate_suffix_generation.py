@@ -9,7 +9,7 @@ from pathlib import Path
 from tqdm.auto import tqdm
 
 from suffix_eval.config import EvalConfig
-from suffix_eval.data import CODE_GROUP_COLUMNS, SECRET_GROUP_COLUMNS, iter_evaluation_rows, load_evaluation_dataset
+from suffix_eval.data import available_group_columns, iter_evaluation_rows, load_evaluation_dataset
 from suffix_eval.generation import generate_suffix_batch
 from suffix_eval.modeling import load_model_and_tokenizer
 from suffix_eval.results import AggregateTracker, JsonlWriter, write_aggregate_results
@@ -47,7 +47,7 @@ def run(config: EvalConfig) -> None:
         loaded.model.resize_token_embeddings(len(loaded.tokenizer))
 
     scorer = build_scorer(config.mode, config.code_language)
-    group_columns = CODE_GROUP_COLUMNS if config.mode == "code" else SECRET_GROUP_COLUMNS
+    group_columns = available_group_columns(dataset, config.mode)
     aggregates = AggregateTracker(group_columns=group_columns)
     score_failures = 0
     generation_params = config.generation.to_generation_kwargs()
