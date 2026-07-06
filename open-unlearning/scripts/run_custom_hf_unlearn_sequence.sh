@@ -17,6 +17,6 @@ echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES}"
 for config_name in "${configs[@]}"; do
     echo "Running ${config_name}"
 
-    python src/train.py \
+    python ../src/train.py \
         --config-name="${config_name}"
 done
