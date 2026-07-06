@@ -62,9 +62,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of discovered checkpoint subfolders to evaluate.",
     )
     parser.add_argument(
+        "--checkpoint-selection",
+        choices=["first", "last"],
+        default="first",
+        help="Select the first or last N discovered checkpoint subfolders.",
+    )
+    parser.add_argument(
         "--alias-checkpoints-as-epochs",
         action="store_true",
         help="Use epoch-1, epoch-2, ... in evaluation output paths instead of checkpoint names.",
+    )
+    parser.add_argument(
+        "--checkpoint-alias-start",
+        type=int,
+        default=1,
+        help="Starting number for epoch aliases when --alias-checkpoints-as-epochs is used.",
     )
     parser.add_argument(
         "--output-root",
@@ -268,6 +280,8 @@ def resolve_checkpoints(args: argparse.Namespace, peft_name: str) -> list[str]:
             f"need {args.num_checkpoints}. Pass --checkpoints explicitly if discovery "
             "is unavailable or the repo uses non-standard folder names."
         )
+    if args.checkpoint_selection == "last":
+        return checkpoints[-args.num_checkpoints :]
     return checkpoints[: args.num_checkpoints]
 
 
@@ -364,6 +378,8 @@ def normalize_extra_evalplus_args(raw: list[str]) -> list[str]:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    if args.checkpoint_alias_start <= 0:
+        parser.error("--checkpoint-alias-start must be greater than 0")
     extra_evalplus_args = normalize_extra_evalplus_args(args.extra_evalplus_args)
 
     output_root = Path(args.output_root).expanduser().resolve()
@@ -382,7 +398,7 @@ def main() -> int:
             print(f"Checkpoint resolution failed for {peft_name!r}: {exc}", file=sys.stderr)
             return 1
 
-        for checkpoint_index, checkpoint in enumerate(checkpoints, start=1):
+        for checkpoint_index, checkpoint in enumerate(checkpoints, start=args.checkpoint_alias_start):
             checkpoint_alias = checkpoint_output_name(
                 checkpoint,
                 checkpoint_index,
