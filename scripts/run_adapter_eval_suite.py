@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -25,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Evaluate any number of Hugging Face PEFT adapters across checkpoint "
             "subfolders. For each adapter/checkpoint pair this runs forget suffix "
-            "evaluation, retain suffix evaluation, and EvalPlus "
+            "evaluation, retain suffix evaluation, approximate suffix evaluation, and EvalPlus "
             "HumanEval+ForgetEval+UtilityEval."
         )
     )
@@ -43,8 +44,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--checkpoints",
         nargs="+",
-        default=list(DEFAULT_CHECKPOINTS),
+        default=None,
         help="PEFT adapter checkpoint subfolders to evaluate.",
+    )
+    parser.add_argument(
+        "--discover-checkpoints",
+        action="store_true",
+        help=(
+            "Discover checkpoint-* subfolders from each local adapter directory or "
+            "Hugging Face Hub model repo instead of using --checkpoints/defaults."
+        ),
+    )
+    parser.add_argument(
+        "--num-checkpoints",
+        type=int,
+        default=3,
+        help="Number of discovered checkpoint subfolders to evaluate.",
+    )
+    parser.add_argument(
+        "--alias-checkpoints-as-epochs",
+        action="store_true",
+        help="Use epoch-1, epoch-2, ... in evaluation output paths instead of checkpoint names.",
     )
     parser.add_argument(
         "--output-root",
@@ -104,6 +124,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Scoring mode for retain suffix evaluation.",
     )
     parser.add_argument(
+        "--approx-dataset",
+        default="dbaysal/approximate",
+        help="Hugging Face dataset used for approximate suffix evaluation.",
+    )
+    parser.add_argument(
+        "--approx-prefix-column",
+        default="prefix",
+        help="Approximate dataset prefix column.",
+    )
+    parser.add_argument(
+        "--approx-suffix-column",
+        default="suffix",
+        help="Approximate dataset suffix/reference column.",
+    )
+    parser.add_argument(
+        "--approx-mode",
+        choices=["secret", "code"],
+        default="code",
+        help="Scoring mode for approximate suffix evaluation.",
+    )
+    parser.add_argument(
         "--max-new-tokens",
         type=int,
         default=2056,
@@ -118,7 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--evalplus-bs",
         type=int,
-        default=500,
+        default=64,
         help="EvalPlus generation batch size.",
     )
     parser.add_argument(
@@ -164,6 +205,76 @@ def slug(value: str) -> str:
     value = value.strip().strip("./")
     value = re.sub(r"[^A-Za-z0-9._-]+", "--", value)
     return value.strip("-") or "adapter"
+
+
+def checkpoint_sort_key(value: str) -> tuple[int, int | str]:
+    match = re.fullmatch(r"checkpoint-(\d+)", value)
+    if match:
+        return (0, int(match.group(1)))
+    return (1, value)
+
+
+def discover_local_checkpoints(adapter_path: Path) -> list[str]:
+    if not adapter_path.exists() or not adapter_path.is_dir():
+        return []
+    return sorted(
+        (
+            child.name
+            for child in adapter_path.iterdir()
+            if child.is_dir() and re.fullmatch(r"checkpoint-\d+", child.name)
+        ),
+        key=checkpoint_sort_key,
+    )
+
+
+def discover_hf_checkpoints(repo_id: str) -> list[str]:
+    try:
+        from huggingface_hub import list_repo_files
+    except ImportError as exc:
+        raise RuntimeError(
+            "Checkpoint discovery for Hugging Face repos requires `huggingface_hub`."
+        ) from exc
+
+    try:
+        repo_files = list_repo_files(repo_id=repo_id, repo_type="model")
+    except Exception as exc:
+        raise RuntimeError(f"Could not list Hugging Face repo files for {repo_id!r}: {exc}") from exc
+
+    checkpoints = {
+        path.split("/", 1)[0]
+        for path in repo_files
+        if re.match(r"checkpoint-\d+/", path)
+    }
+    return sorted(checkpoints, key=checkpoint_sort_key)
+
+
+def resolve_checkpoints(args: argparse.Namespace, peft_name: str) -> list[str]:
+    if args.checkpoints:
+        return list(args.checkpoints)
+
+    if not args.discover_checkpoints:
+        return list(DEFAULT_CHECKPOINTS)
+
+    if args.num_checkpoints <= 0:
+        raise ValueError("--num-checkpoints must be greater than 0")
+
+    checkpoints = discover_local_checkpoints(Path(peft_name).expanduser())
+    if not checkpoints:
+        checkpoints = discover_hf_checkpoints(peft_name)
+
+    if len(checkpoints) < args.num_checkpoints:
+        raise RuntimeError(
+            f"Found only {len(checkpoints)} checkpoint folder(s) for {peft_name!r}; "
+            f"need {args.num_checkpoints}. Pass --checkpoints explicitly if discovery "
+            "is unavailable or the repo uses non-standard folder names."
+        )
+    return checkpoints[: args.num_checkpoints]
+
+
+def checkpoint_output_name(checkpoint: str, index: int, alias_as_epochs: bool) -> str:
+    if alias_as_epochs:
+        return f"epoch-{index}"
+    return checkpoint
 
 
 def write_suffix_config(
@@ -258,11 +369,24 @@ def main() -> int:
     evalplus_root = output_root / "evalplus"
 
     failures: list[tuple[str, int]] = []
+    checkpoint_manifest: dict[str, dict[str, str]] = {}
 
     for peft_name in args.peft_names:
         adapter_slug = slug(peft_name)
-        for checkpoint in args.checkpoints:
-            checkpoint_slug = slug(checkpoint)
+        try:
+            checkpoints = resolve_checkpoints(args, peft_name)
+        except Exception as exc:
+            print(f"Checkpoint resolution failed for {peft_name!r}: {exc}", file=sys.stderr)
+            return 1
+
+        for checkpoint_index, checkpoint in enumerate(checkpoints, start=1):
+            checkpoint_alias = checkpoint_output_name(
+                checkpoint,
+                checkpoint_index,
+                args.alias_checkpoints_as_epochs,
+            )
+            checkpoint_manifest.setdefault(peft_name, {})[checkpoint_alias] = checkpoint
+            checkpoint_slug = slug(checkpoint_alias)
             run_slug = f"{adapter_slug}_{checkpoint_slug}"
 
             suffix_runs = (
@@ -279,6 +403,13 @@ def main() -> int:
                     "prefix_column": args.retain_prefix_column,
                     "suffix_column": args.retain_suffix_column,
                     "mode": args.retain_mode,
+                },
+                {
+                    "label": "approximate",
+                    "dataset": args.approx_dataset,
+                    "prefix_column": args.approx_prefix_column,
+                    "suffix_column": args.approx_suffix_column,
+                    "mode": args.approx_mode,
                 },
             )
 
@@ -319,6 +450,10 @@ def main() -> int:
                     if not args.continue_on_error:
                         return return_code
 
+            evalplus_result_path = (
+                evalplus_root / args.evalplus_dataset / f"{run_slug}.eval_results.json"
+            )
+            evalplus_result_path.parent.mkdir(parents=True, exist_ok=True)
             evalplus_cmd = [
                 sys.executable,
                 "-m",
@@ -340,6 +475,8 @@ def main() -> int:
                 "--force-base-prompt",
                 "--root",
                 str(evalplus_root),
+                "--output-file",
+                str(evalplus_result_path),
                 "--dtype",
                 args.dtype,
             ]
@@ -358,6 +495,12 @@ def main() -> int:
                 failures.append((command_name, return_code))
                 if not args.continue_on_error:
                     return return_code
+
+    if checkpoint_manifest:
+        manifest_path = output_root / "checkpoint_manifest.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        with manifest_path.open("w", encoding="utf-8") as handle:
+            json.dump(checkpoint_manifest, handle, indent=2, sort_keys=True)
 
     if failures:
         print("\nCompleted with failures:", file=sys.stderr)
