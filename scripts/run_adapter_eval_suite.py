@@ -159,7 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--evalplus-bs",
         type=int,
-        default=64,
+        default=128,
         help="EvalPlus generation batch size.",
     )
     parser.add_argument(

@@ -23,6 +23,11 @@ methods=(
     "prod_kl"
 )
 
+tasks=(
+    "secret"
+    "code-unit"
+)
+
 detect_gpu_ids() {
     if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
         if [ "${CUDA_VISIBLE_DEVICES}" = "-1" ]; then
@@ -61,25 +66,42 @@ if [ "${#gpu_ids[@]}" -eq 0 ]; then
 fi
 
 jobs=()
-for model_spec in "${model_specs[@]}"; do
-    read -r model_key base_model <<< "${model_spec}"
-    for method in "${methods[@]}"; do
-        jobs+=("${model_key}|${base_model}|${method}")
+for task in "${tasks[@]}"; do
+    for model_spec in "${model_specs[@]}"; do
+        read -r model_key base_model <<< "${model_spec}"
+        for method in "${methods[@]}"; do
+            jobs+=("${task}|${model_key}|${base_model}|${method}")
+        done
     done
 done
 
 run_eval_job() {
     local gpu_id="$1"
-    local model_key="$2"
-    local base_model="$3"
-    local method="$4"
-    shift 4
+    local task="$2"
+    local model_key="$3"
+    local base_model="$4"
+    local method="$5"
+    shift 5
 
-    local peft_name="dbaysal/code-unit-unlearning-${model_key}-${method}"
-    local output_root="${REPO_ROOT}/Results/code_unit_eval_suite/${model_key}/${method}"
+    local forget_prefix_column
+    local forget_suffix_column
+    local forget_mode
+    if [ "${task}" = "secret" ]; then
+        forget_prefix_column="secret_prefix"
+        forget_suffix_column="secret_suffix"
+        forget_mode="secret"
+    else
+        forget_prefix_column="prefix"
+        forget_suffix_column="suffix"
+        forget_mode="code"
+    fi
+
+    local peft_name="dbaysal/${task}-unlearning-${model_key}-${method}"
+    local task_output_name="${task/-/_}"
+    local output_root="${REPO_ROOT}/Results/secret_code_unit_eval_suite/${task_output_name}/${model_key}/${method}"
 
     echo
-    echo "GPU ${gpu_id}: task=code-unit, model=${model_key}, method=${method}"
+    echo "GPU ${gpu_id}: task=${task}, model=${model_key}, method=${method}"
     echo "GPU ${gpu_id}: base_model=${base_model}"
     echo "GPU ${gpu_id}: peft_name=${peft_name}"
     echo "GPU ${gpu_id}: output_root=${output_root}"
@@ -92,9 +114,9 @@ run_eval_job() {
         --alias-checkpoints-as-epochs \
         --output-root "${output_root}" \
         --forget-dataset "dbaysal/forget" \
-        --forget-prefix-column "prefix" \
-        --forget-suffix-column "suffix" \
-        --forget-mode "code" \
+        --forget-prefix-column "${forget_prefix_column}" \
+        --forget-suffix-column "${forget_suffix_column}" \
+        --forget-mode "${forget_mode}" \
         --retain-dataset "dbaysal/retain_half" \
         --retain-prefix-column "prefix" \
         --retain-suffix-column "suffix" \
@@ -105,7 +127,7 @@ run_eval_job() {
         --approx-mode "code" \
         --max-new-tokens 2056 \
         --evalplus-dataset "humaneval-forget-utility" \
-        --evalplus-bs 64 \
+        --evalplus-bs 128 \
         "$@"
 }
 
@@ -117,18 +139,19 @@ run_worker() {
     local job_index
     for ((job_index = worker_index; job_index < ${#jobs[@]}; job_index += ${#gpu_ids[@]})); do
         local job="${jobs[${job_index}]}"
+        local task
         local model_key
         local base_model
         local method
-        IFS="|" read -r model_key base_model method <<< "${job}"
-        run_eval_job "${gpu_id}" "${model_key}" "${base_model}" "${method}" "$@"
+        IFS="|" read -r task model_key base_model method <<< "${job}"
+        run_eval_job "${gpu_id}" "${task}" "${model_key}" "${base_model}" "${method}" "$@"
     done
 }
 
 echo "Detected ${#gpu_ids[@]} GPU worker(s): ${gpu_ids[*]}"
-echo "Queued ${#jobs[@]} code-unit adapter evaluation job(s). Each job runs its checkpoints sequentially on one GPU."
+echo "Queued ${#jobs[@]} adapter evaluation job(s). Each job runs its checkpoints sequentially on one GPU."
 
-log_dir="${REPO_ROOT}/Results/code_unit_eval_suite/logs"
+log_dir="${REPO_ROOT}/Results/secret_code_unit_eval_suite/logs"
 mkdir -p "${log_dir}"
 
 pids=()
