@@ -117,7 +117,7 @@ run_eval_job() {
         --forget-prefix-column "${forget_prefix_column}" \
         --forget-suffix-column "${forget_suffix_column}" \
         --forget-mode "${forget_mode}" \
-        --retain-dataset "dbaysal/retain_half" \
+        --retain-dataset "dbaysal/retain-half" \
         --retain-prefix-column "prefix" \
         --retain-suffix-column "suffix" \
         --retain-mode "code" \
