@@ -234,8 +234,12 @@ def evaluate_combined(
     gguf_file: Optional[str] = None,
     num_ctx: Optional[int] = None,
     defer_sanitize: bool = False,
+    sanitize_workers: Optional[int] = None,
     **model_kwargs,
 ):
+    n_workers = parallel or max(1, multiprocessing.cpu_count() // 2)
+    effective_sanitize_workers = sanitize_workers or n_workers
+
     if model_kwargs:
         os.environ["TOKENIZERS_PARALLELISM"] = os.environ.get(
             "TOKENIZERS_PARALLELISM", "false"
@@ -246,6 +250,7 @@ def evaluate_combined(
             gguf_file=gguf_file,
             num_ctx=num_ctx,
             defer_sanitize=defer_sanitize,
+            sanitize_workers=effective_sanitize_workers,
             **model_kwargs,
         )
     assert samples is not None, "No samples provided"
@@ -283,6 +288,7 @@ def evaluate_combined(
             mini=mini,
             noextreme=noextreme,
             version=version,
+            sanitize_workers=effective_sanitize_workers,
         )
         with open(component_result_path, "r") as f:
             component_results[component] = json.load(f)
@@ -326,8 +332,12 @@ def evaluate(
     gguf_file: Optional[str] = None,
     num_ctx: Optional[int] = None,
     defer_sanitize: bool = False,
+    sanitize_workers: Optional[int] = None,
     **model_kwargs,
 ):
+    n_workers = parallel or max(1, multiprocessing.cpu_count() // 2)
+    effective_sanitize_workers = sanitize_workers or n_workers
+
     dataset = dataset.lower()
     if is_custom_dataset(dataset):
         dataset = normalize_custom_dataset_name(dataset)
@@ -349,6 +359,7 @@ def evaluate(
             gguf_file=gguf_file,
             num_ctx=num_ctx,
             defer_sanitize=defer_sanitize,
+            sanitize_workers=effective_sanitize_workers,
             **model_kwargs,
         )
         return
@@ -364,11 +375,10 @@ def evaluate(
             gguf_file=gguf_file,
             num_ctx=num_ctx,
             defer_sanitize=defer_sanitize,
+            sanitize_workers=effective_sanitize_workers,
             **model_kwargs,
         )
     assert samples is not None, "No samples provided"
-
-    n_workers = parallel or max(1, multiprocessing.cpu_count() // 2)
 
     result_path = get_default_result_path(samples, output_file)
 

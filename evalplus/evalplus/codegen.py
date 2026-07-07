@@ -253,6 +253,7 @@ def run_codegen(
     gptqmodel_backend: str = "auto",  # For GPTQModel
     gguf_file: Optional[str] = None,
     defer_sanitize: bool = False,
+    sanitize_workers: Optional[int] = None,
     **kwargs,
 ):
     dataset = dataset.lower()
@@ -439,6 +440,7 @@ def run_codegen(
             target_path=target_path,
             mbpp_version=version,
             problems=dataset_dict,
+            sanitize_workers=sanitize_workers or 1,
         )
 
     return target_path
