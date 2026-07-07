@@ -3,7 +3,7 @@
 import os
 import pathlib
 import re
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Dict, Generator, List, Optional, Set, Tuple
 
 import tree_sitter_python
@@ -263,10 +263,19 @@ def sanitize_samples(
         results = [_sanitize_solution(job) for job in tqdm(jobs)]
     else:
         print(f"Sanitizing with {sanitize_workers} CPU worker(s).")
+        results = [None] * len(jobs)
         with ProcessPoolExecutor(max_workers=sanitize_workers) as executor:
-            results = list(tqdm(executor.map(_sanitize_solution, jobs), total=len(jobs)))
+            futures = {
+                executor.submit(_sanitize_solution, job): index
+                for index, job in enumerate(jobs)
+            }
+            for future in tqdm(as_completed(futures), total=len(futures)):
+                results[futures[future]] = future.result()
 
-    for new_solution, changed, message in results:
+    for result in results:
+        if result is None:
+            continue
+        new_solution, changed, message = result
         if changed:
             if message is not None:
                 print(message)
