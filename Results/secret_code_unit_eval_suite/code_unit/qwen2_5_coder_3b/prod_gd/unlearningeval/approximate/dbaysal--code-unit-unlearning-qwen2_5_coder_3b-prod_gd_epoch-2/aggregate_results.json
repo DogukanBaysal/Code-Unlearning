@@ -1,0 +1,24 @@
+{
+  "mode": "code",
+  "num_evaluated_examples": 50,
+  "average_similarity_score": 0.4186324641801352,
+  "score_metric": "bleu",
+  "score_failures": 0,
+  "grouped_averages": {
+    "type": {
+      "class": 0.4968055905557705,
+      "function": 0.34045933780449994
+    }
+  },
+  "config": {
+    "dataset_name": "dbaysal/approximate",
+    "prefix_column": "prefix",
+    "suffix_column": "suffix",
+    "uuid_column": "uuid",
+    "mode": "code",
+    "output_dir": "/workspace/Code-Unlearning/Results/secret_code_unit_eval_suite/code_unit/qwen2_5_coder_3b/prod_gd/unlearningeval/approximate/dbaysal--code-unit-unlearning-qwen2_5_coder_3b-prod_gd_epoch-2",
+    "label": "approximate",
+    "dataset_split": "train",
+    "code_language": "python"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "dbaysal/code-unit-unlearning-meta_llama3_2_3b-ga": {
+    "epoch-1": "checkpoint-5",
+    "epoch-2": "checkpoint-10",
+    "epoch-3": "checkpoint-12"
+  }
+}

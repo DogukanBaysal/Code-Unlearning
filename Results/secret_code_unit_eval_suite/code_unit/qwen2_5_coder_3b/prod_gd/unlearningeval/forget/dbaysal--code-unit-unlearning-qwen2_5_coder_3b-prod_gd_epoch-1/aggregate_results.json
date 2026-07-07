@@ -1,0 +1,29 @@
+{
+  "mode": "code",
+  "num_evaluated_examples": 150,
+  "average_similarity_score": 0.043244789995866596,
+  "score_metric": "bleu",
+  "score_failures": 0,
+  "grouped_averages": {
+    "difficulty": {
+      "complex": 0.0031914436793617695,
+      "moderate": 0.018167350443936317,
+      "simple": 0.1083755758643017
+    },
+    "type": {
+      "class": 0.04458185980924769,
+      "function": 0.04190772018248551
+    }
+  },
+  "config": {
+    "dataset_name": "dbaysal/forget",
+    "prefix_column": "prefix",
+    "suffix_column": "suffix",
+    "uuid_column": "uuid",
+    "mode": "code",
+    "output_dir": "/workspace/Code-Unlearning/Results/secret_code_unit_eval_suite/code_unit/qwen2_5_coder_3b/prod_gd/unlearningeval/forget/dbaysal--code-unit-unlearning-qwen2_5_coder_3b-prod_gd_epoch-1",
+    "label": "forget",
+    "dataset_split": "train",
+    "code_language": "python"
+  }
+}

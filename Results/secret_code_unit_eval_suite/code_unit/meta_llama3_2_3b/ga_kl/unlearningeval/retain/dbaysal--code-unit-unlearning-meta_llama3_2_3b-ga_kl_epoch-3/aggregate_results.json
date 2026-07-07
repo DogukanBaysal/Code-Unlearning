@@ -1,0 +1,24 @@
+{
+  "mode": "code",
+  "num_evaluated_examples": 150,
+  "average_similarity_score": 0.024588573406939686,
+  "score_metric": "bleu",
+  "score_failures": 0,
+  "grouped_averages": {
+    "type": {
+      "class": 0.009150833837568886,
+      "function": 0.040026312976310485
+    }
+  },
+  "config": {
+    "dataset_name": "dbaysal/retain-half",
+    "prefix_column": "prefix",
+    "suffix_column": "suffix",
+    "uuid_column": "uuid",
+    "mode": "code",
+    "output_dir": "/workspace/Code-Unlearning/Results/secret_code_unit_eval_suite/code_unit/meta_llama3_2_3b/ga_kl/unlearningeval/retain/dbaysal--code-unit-unlearning-meta_llama3_2_3b-ga_kl_epoch-3",
+    "label": "retain",
+    "dataset_split": "train",
+    "code_language": "python"
+  }
+}

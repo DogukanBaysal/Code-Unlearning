@@ -1,0 +1,24 @@
+{
+  "mode": "code",
+  "num_evaluated_examples": 150,
+  "average_similarity_score": 0.8676376600396289,
+  "score_metric": "bleu",
+  "score_failures": 0,
+  "grouped_averages": {
+    "type": {
+      "class": 0.8481018182209232,
+      "function": 0.8871735018583348
+    }
+  },
+  "config": {
+    "dataset_name": "dbaysal/retain-half",
+    "prefix_column": "prefix",
+    "suffix_column": "suffix",
+    "uuid_column": "uuid",
+    "mode": "code",
+    "output_dir": "/workspace/Code-Unlearning/Results/secret_code_unit_eval_suite/code_unit/qwen2_5_coder_3b/prod_kl/unlearningeval/retain/dbaysal--code-unit-unlearning-qwen2_5_coder_3b-prod_kl_epoch-1",
+    "label": "retain",
+    "dataset_split": "train",
+    "code_language": "python"
+  }
+}

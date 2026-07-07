@@ -1,0 +1,7 @@
+{
+  "dbaysal/code-unit-unlearning-qwen2_5_coder_3b-prod": {
+    "epoch-1": "checkpoint-5",
+    "epoch-2": "checkpoint-10",
+    "epoch-3": "checkpoint-12"
+  }
+}
