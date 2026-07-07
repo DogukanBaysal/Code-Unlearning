@@ -99,8 +99,6 @@ run_eval_job() {
         --max-new-tokens 2056 \
         --evalplus-dataset "humaneval-forget-utility" \
         --evalplus-bs 128 \
-        -- \
-        --sanitize-workers 8 \
         "$@"
 }
 
