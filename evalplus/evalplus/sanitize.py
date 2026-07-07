@@ -3,7 +3,6 @@
 import os
 import pathlib
 import re
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Dict, Generator, List, Optional, Set, Tuple
 
 import tree_sitter_python
@@ -178,27 +177,6 @@ def sanitize(code: str, entrypoint: Optional[str] = None) -> str:
     return sanitized_code
 
 
-def _sanitize_solution(job):  # type: ignore[no-untyped-def]
-    solution, prompt, function_name, samples, target_path, is_folder = job
-    task_id = solution["task_id"]
-    dbg_identifier = solution["_identifier"]
-
-    if "solution" in solution:
-        old_code = solution["solution"]
-    else:
-        old_code = prompt + "\n" + solution["completion"]
-
-    new_code = sanitize(code=old_code, entrypoint=function_name)
-    message = None
-    changed = new_code != old_code
-    if changed:
-        message = "Sanitized: " + dbg_identifier
-        if is_folder:
-            message += " -> " + dbg_identifier.replace(samples, target_path)
-
-    return {"task_id": task_id, "solution": new_code}, changed, message
-
-
 def sanitize_samples(
     samples: str,
     target_path: Optional[str] = None,
@@ -206,11 +184,7 @@ def sanitize_samples(
     debug_task: str = None,
     mbpp_version="default",
     problems: Optional[Dict[str, Dict]] = None,
-    sanitize_workers: int = 1,
 ) -> str:
-    if sanitize_workers <= 0:
-        raise ValueError("sanitize_workers must be greater than 0")
-
     # task_id -> entry_point
     entry_point = {}
     dataset = problems or {**get_human_eval_plus(), **get_mbpp_plus(version=mbpp_version)}
@@ -233,9 +207,8 @@ def sanitize_samples(
     ntotal = 0
 
     new_solutions = []
-    jobs = []
 
-    for solution in load_solutions(samples):
+    for solution in tqdm(load_solutions(samples)):
         task_id = solution["task_id"]
         if task_id not in dataset:
             print(
@@ -244,43 +217,28 @@ def sanitize_samples(
             continue
 
         function_name = entry_point[task_id] if task_id in entry_point else None
+        dbg_identifier = solution["_identifier"]
         if debug_task is not None and task_id != debug_task:
             continue
 
         ntotal += 1
-        jobs.append(
-            (
-                solution,
-                dataset[task_id]["prompt"],
-                function_name,
-                samples,
-                target_path,
-                is_folder,
-            )
-        )
+        if "solution" in solution:
+            old_code = solution["solution"]
+        else:
+            assert "completion" in solution
+            old_code = dataset[task_id]["prompt"] + "\n" + solution["completion"]
 
-    if sanitize_workers == 1 or len(jobs) <= 1:
-        results = [_sanitize_solution(job) for job in tqdm(jobs)]
-    else:
-        print(f"Sanitizing with {sanitize_workers} CPU worker(s).")
-        results = [None] * len(jobs)
-        with ProcessPoolExecutor(max_workers=sanitize_workers) as executor:
-            futures = {
-                executor.submit(_sanitize_solution, job): index
-                for index, job in enumerate(jobs)
-            }
-            for future in tqdm(as_completed(futures), total=len(futures)):
-                results[futures[future]] = future.result()
+        new_code = sanitize(code=old_code, entrypoint=function_name)
 
-    for result in results:
-        if result is None:
-            continue
-        new_solution, changed, message = result
-        if changed:
-            if message is not None:
-                print(message)
+        # if changed, print the message
+        if new_code != old_code:
+            msg = "Sanitized: " + dbg_identifier
+            if is_folder:
+                msg += " -> " + dbg_identifier.replace(samples, target_path)
+            print(msg)
             nsan += 1
-        new_solutions.append(new_solution)
+
+        new_solutions.append({"task_id": task_id, "solution": new_code})
 
     if is_folder:
         write_directory(target_path, new_solutions)
@@ -296,18 +254,13 @@ def sanitize_samples(
 
 
 def script(
-    samples: str,
-    inplace: bool = False,
-    debug_task: str = None,
-    mbpp_version="default",
-    sanitize_workers: int = 1,
+    samples: str, inplace: bool = False, debug_task: str = None, mbpp_version="default"
 ):
     return sanitize_samples(
         samples=samples,
         inplace=inplace,
         debug_task=debug_task,
         mbpp_version=mbpp_version,
-        sanitize_workers=sanitize_workers,
     )
 
 
