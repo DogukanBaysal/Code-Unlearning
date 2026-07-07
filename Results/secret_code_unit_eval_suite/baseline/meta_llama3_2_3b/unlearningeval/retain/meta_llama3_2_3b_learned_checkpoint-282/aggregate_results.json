@@ -1,0 +1,24 @@
+{
+  "mode": "code",
+  "num_evaluated_examples": 150,
+  "average_similarity_score": 0.987229491050786,
+  "score_metric": "bleu",
+  "score_failures": 0,
+  "grouped_averages": {
+    "type": {
+      "class": 0.9770201071234178,
+      "function": 0.997438874978154
+    }
+  },
+  "config": {
+    "dataset_name": "dbaysal/retain-half",
+    "prefix_column": "prefix",
+    "suffix_column": "suffix",
+    "uuid_column": "uuid",
+    "mode": "code",
+    "output_dir": "/workspace/Code-Unlearning/Results/secret_code_unit_eval_suite/code_unit/meta_llama3_2_3b/learned_checkpoint-282/unlearningeval/retain/meta_llama3_2_3b_learned_checkpoint-282",
+    "label": "retain",
+    "dataset_split": "train",
+    "code_language": "python"
+  }
+}
