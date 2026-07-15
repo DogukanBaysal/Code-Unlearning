@@ -133,7 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Optional CSV containing split, eval_mode, and uuid columns. When set, "
-            "the suffix evaluator also writes UUID-filtered aggregate results."
+            "the suffix evaluator excludes matching UUIDs from an additional aggregate."
         ),
     )
     parser.add_argument(

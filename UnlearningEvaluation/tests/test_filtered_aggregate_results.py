@@ -70,7 +70,8 @@ class FilteredAggregateResultsTests(unittest.TestCase):
             root = Path(directory)
             csv_path = root / "matches.csv"
             csv_path.write_text(
-                "split,eval_mode,uuid\nforget,secret,keep\n",
+                "model_dir,split,eval_mode,uuid\n"
+                "qwen2_5_coder_3b,forget,secret,discard\n",
                 encoding="utf-8",
             )
             dataset_config = DatasetEvalConfig(
@@ -83,7 +84,7 @@ class FilteredAggregateResultsTests(unittest.TestCase):
                 label="forget",
             )
             suite_config = EvalConfig(
-                model_name="model",
+                model_name="Qwen/Qwen2.5-Coder-3B",
                 aggregate_filter_csv=csv_path,
                 generation=GenerationSettings(
                     pass_k=10,
@@ -117,8 +118,10 @@ class FilteredAggregateResultsTests(unittest.TestCase):
         self.assertEqual(original["num_evaluated_examples"], 2)
         self.assertNotIn("uuid_filter", original)
         self.assertEqual(filtered["num_evaluated_examples"], 1)
-        self.assertEqual(filtered["uuid_filter"]["num_selected_uuids"], 1)
-        self.assertEqual(filtered["uuid_filter"]["num_matched_examples"], 1)
+        self.assertEqual(filtered["uuid_filter"]["operation"], "exclude")
+        self.assertEqual(filtered["uuid_filter"]["num_excluded_uuids_in_csv"], 1)
+        self.assertEqual(filtered["uuid_filter"]["num_excluded_examples"], 1)
+        self.assertEqual(filtered["uuid_filter"]["num_included_examples"], 1)
         self.assertEqual(
             list(filtered["pass_at_k"]),
             ["pass@1", "pass@5", "pass@10"],

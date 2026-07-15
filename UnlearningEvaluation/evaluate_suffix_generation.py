@@ -67,6 +67,7 @@ def run_dataset(config: DatasetEvalConfig, suite_config: EvalConfig, loaded) -> 
         uuid_filter = load_aggregate_uuid_filter(
             suite_config.aggregate_filter_csv,
             config,
+            suite_config.model_name,
         )
         filtered_aggregates_by_pass_k = {
             cutoff: AggregateTracker(group_columns=group_columns)
@@ -113,7 +114,10 @@ def run_dataset(config: DatasetEvalConfig, suite_config: EvalConfig, loaded) -> 
                         score = scorer.score(generated.generated_suffix, generated.row.suffix)
                     except Exception as exc:
                         score_failures += 1
-                        if uuid_filter is not None and generated.row.uuid in uuid_filter.uuids:
+                        if (
+                            uuid_filter is not None
+                            and generated.row.uuid not in uuid_filter.excluded_uuids
+                        ):
                             filtered_score_failures += 1
                         score_error = str(exc)
                         LOGGER.warning(
@@ -140,7 +144,7 @@ def run_dataset(config: DatasetEvalConfig, suite_config: EvalConfig, loaded) -> 
                     if (
                         uuid_filter is not None
                         and filtered_aggregates_by_pass_k is not None
-                        and attempts[0].row.uuid in uuid_filter.uuids
+                        and attempts[0].row.uuid not in uuid_filter.excluded_uuids
                     ):
                         filtered_aggregates_by_pass_k[cutoff].add(
                             cutoff_score,
@@ -197,7 +201,7 @@ def run_dataset(config: DatasetEvalConfig, suite_config: EvalConfig, loaded) -> 
         filtered_aggregates = filtered_aggregates_by_pass_k[configured_pass_k]
         if not filtered_aggregates.scores:
             raise ValueError(
-                "No evaluated examples matched the UUID filter for "
+                "Every evaluated example was excluded by the UUID filter for "
                 f"{config.label or config.dataset_name}"
             )
         filtered_pass_at_k_results = {
@@ -218,7 +222,10 @@ def run_dataset(config: DatasetEvalConfig, suite_config: EvalConfig, loaded) -> 
             num_generated_results=len(filtered_aggregates.scores) * configured_pass_k,
             score_failures=filtered_score_failures,
             pass_at_k_results=filtered_pass_at_k_results,
-            uuid_filter=uuid_filter.as_dict(len(filtered_aggregates.scores)),
+            uuid_filter=uuid_filter.as_dict(
+                evaluated_examples=len(aggregates.scores),
+                included_examples=len(filtered_aggregates.scores),
+            ),
         )
         LOGGER.info("Wrote UUID-filtered aggregate results to %s", filtered_aggregate_path)
 

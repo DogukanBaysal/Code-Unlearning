@@ -26,51 +26,69 @@ class EvaluationRow:
 @dataclass(frozen=True)
 class AggregateUuidFilter:
     source_csv: Path
+    model_dir: str
     split: str
     eval_mode: str
-    uuids: frozenset[str]
+    excluded_uuids: frozenset[str]
 
-    def as_dict(self, matched_examples: int) -> dict[str, Any]:
+    def as_dict(
+        self,
+        evaluated_examples: int,
+        included_examples: int,
+    ) -> dict[str, Any]:
         return {
             "source_csv": str(self.source_csv),
+            "operation": "exclude",
+            "model_dir": self.model_dir,
             "split": self.split,
             "eval_mode": self.eval_mode,
-            "num_selected_uuids": len(self.uuids),
-            "num_matched_examples": matched_examples,
+            "num_excluded_uuids_in_csv": len(self.excluded_uuids),
+            "num_excluded_examples": evaluated_examples - included_examples,
+            "num_included_examples": included_examples,
         }
 
 
 def load_aggregate_uuid_filter(
     csv_path: Path,
     config: DatasetEvalConfig,
+    model_name: str,
 ) -> AggregateUuidFilter:
+    model_dir = aggregate_filter_model_dir(model_name)
     split, eval_mode = aggregate_filter_selector(config)
     with csv_path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
-        required_columns = {"split", "eval_mode", "uuid"}
+        required_columns = {"model_dir", "split", "eval_mode", "uuid"}
         missing = sorted(required_columns - set(reader.fieldnames or ()))
         if missing:
             raise ValueError(
                 f"Aggregate filter CSV {csv_path} is missing column(s): "
                 f"{', '.join(missing)}"
             )
-        uuids = frozenset(
+        excluded_uuids = frozenset(
             row["uuid"].strip()
             for row in reader
-            if row["split"].strip() == split
+            if row["model_dir"].strip() == model_dir
+            and row["split"].strip() == split
             and row["eval_mode"].strip() == eval_mode
             and row["uuid"].strip()
         )
-    if not uuids:
-        raise ValueError(
-            f"Aggregate filter CSV {csv_path} has no UUIDs for "
-            f"split={split!r}, eval_mode={eval_mode!r}"
-        )
     return AggregateUuidFilter(
         source_csv=csv_path,
+        model_dir=model_dir,
         split=split,
         eval_mode=eval_mode,
-        uuids=uuids,
+        excluded_uuids=excluded_uuids,
+    )
+
+
+def aggregate_filter_model_dir(model_name: str) -> str:
+    normalized = model_name.lower().replace("_", "-")
+    if "qwen2.5-coder-3b" in normalized or "qwen2-5-coder-3b" in normalized:
+        return "qwen2_5_coder_3b"
+    if "llama-3.2-3b" in normalized or "llama3.2-3b" in normalized:
+        return "meta_llama3_2_3b"
+    raise ValueError(
+        f"Could not map model {model_name!r} to a model_dir in the aggregate filter CSV"
     )
 
 
@@ -80,7 +98,7 @@ def aggregate_filter_selector(config: DatasetEvalConfig) -> tuple[str, str]:
     if dataset_key == "forget":
         eval_mode = "secret" if config.mode == "secret" else "code-unit"
         return "forget", eval_mode
-    if dataset_key in {"retain", "retain_half"}:
+    if dataset_key in {"retain", "retain_half", "retain_full"}:
         return "retain", "code"
     if dataset_key in {"approximate", "held_out_approximate"}:
         return "held_out_approximate", "code"

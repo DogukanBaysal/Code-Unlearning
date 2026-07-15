@@ -48,9 +48,10 @@ The aggregate output also reports cumulative intermediate cutoffs from the same 
 For example, `pass_k: 10` reports pass@1, pass@5, and pass@10, where each value is the
 average of the maximum similarity among the first 1, 5, or 10 attempts per example.
 
-Set `aggregate_filter_csv` to a CSV containing `split`, `eval_mode`, and `uuid` columns
-to also write `aggregate_results_filtered.json`. The original aggregate remains
-unfiltered. The filtered aggregate selects `forget/secret` or `forget/code-unit`
+Set `aggregate_filter_csv` to a CSV containing `model_dir`, `split`, `eval_mode`, and
+`uuid` columns to also write `aggregate_results_filtered.json`. The original aggregate
+remains unfiltered. UUIDs matching the current model and dataset selector are excluded
+from the filtered aggregate. The selectors are `forget/secret` or `forget/code-unit`
 according to the evaluation mode, `retain/code` for retain, and
 `held_out_approximate/code` for approximate.
 
@@ -103,8 +104,7 @@ Each JSONL row contains:
 - `config`
 
 The filtered aggregate has the same fields plus `uuid_filter`, which records the source
-CSV, selected split/mode, number of UUIDs in the filter, and number matched in the
-evaluated dataset.
+CSV, exclusion operation, selected model/split/mode, and included/excluded counts.
 
 For `mode: code`, BLEU is used. For `mode: secret`, chrF is used. Scores are
 stored on a normalized `0.0` to `1.0` scale.
