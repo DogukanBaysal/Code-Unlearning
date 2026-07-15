@@ -3,6 +3,9 @@ model_name: Qwen/Qwen2.5-Coder-3B
 # tokenizer_name: gpt2
 peft_name: "dbaysal/qwen2.5coder-3b-learned"
 # peft_subfolder: adapter
+# Optional CSV with split, eval_mode, and uuid columns. When set, an additional
+# aggregate_results_filtered.json is written using only matching UUIDs.
+# aggregate_filter_csv: /path/to/qwen2_5_coder_3b_unlearning_exact_matches_with_uids.csv
 
 # Hugging Face dataset settings.
 dataset_name: dbaysal/forget
@@ -21,6 +24,8 @@ output_dir: ./evaluation_outputs2
 
 generation:
   max_new_tokens: 2056
+  # Number of sampled continuations per example. Values above 1 require do_sample: true.
+  pass_k: 1
   batch_size: 2
   device: auto
   dtype: auto

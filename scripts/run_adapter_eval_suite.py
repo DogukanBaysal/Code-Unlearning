@@ -62,6 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of discovered checkpoint subfolders to evaluate.",
     )
     parser.add_argument(
+        "--all-checkpoints",
+        action="store_true",
+        help="Evaluate every discovered checkpoint subfolder.",
+    )
+    parser.add_argument(
         "--checkpoint-selection",
         choices=["first", "last"],
         default="first",
@@ -124,6 +129,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="UUID/id column for suffix evaluations.",
     )
     parser.add_argument(
+        "--aggregate-filter-csv",
+        default=None,
+        help=(
+            "Optional CSV containing split, eval_mode, and uuid columns. When set, "
+            "the suffix evaluator also writes UUID-filtered aggregate results."
+        ),
+    )
+    parser.add_argument(
         "--forget-mode",
         choices=["secret", "code"],
         default="secret",
@@ -169,6 +182,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Batch size for suffix evaluations.",
     )
     parser.add_argument(
+        "--pass-k",
+        type=int,
+        default=1,
+        help=(
+            "Number of sampled suffix continuations per example. Values above 1 "
+            "enable sampling and report the best match across the attempts."
+        ),
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.2,
+        help="Sampling temperature used when --pass-k is greater than 1.",
+    )
+    parser.add_argument(
+        "--top-p",
+        type=float,
+        default=0.8,
+        help="Top-p value used when --pass-k is greater than 1.",
+    )
+    parser.add_argument(
         "--evalplus-bs",
         type=int,
         default=128,
@@ -204,6 +238,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Print commands and write suffix configs without running evaluations.",
+    )
+    parser.add_argument(
+        "--skip-evalplus",
+        action="store_true",
+        help="Run only forget, retain, and approximate suffix evaluations.",
     )
     parser.add_argument(
         "extra_evalplus_args",
@@ -267,12 +306,17 @@ def resolve_checkpoints(args: argparse.Namespace, peft_name: str) -> list[str]:
     if not args.discover_checkpoints:
         return list(DEFAULT_CHECKPOINTS)
 
-    if args.num_checkpoints <= 0:
+    if not args.all_checkpoints and args.num_checkpoints <= 0:
         raise ValueError("--num-checkpoints must be greater than 0")
 
     checkpoints = discover_local_checkpoints(Path(peft_name).expanduser())
     if not checkpoints:
         checkpoints = discover_hf_checkpoints(peft_name)
+
+    if args.all_checkpoints:
+        if not checkpoints:
+            raise RuntimeError(f"Found no checkpoint folders for {peft_name!r}")
+        return checkpoints
 
     if len(checkpoints) < args.num_checkpoints:
         raise RuntimeError(
@@ -302,8 +346,13 @@ def write_suffix_config(
     suffix_runs: tuple[dict[str, Any], ...],
     max_new_tokens: int,
     batch_size: int,
+    pass_k: int,
+    temperature: float,
+    top_p: float,
+    aggregate_filter_csv: str | None,
     trust_remote_code: bool,
 ) -> None:
+    sampling = pass_k > 1
     config: dict[str, Any] = {
         "model_name": model,
         "peft_name": peft_name,
@@ -325,15 +374,20 @@ def write_suffix_config(
         ],
         "generation": {
             "max_new_tokens": max_new_tokens,
+            "pass_k": pass_k,
             "batch_size": batch_size,
             "device": "auto",
             "dtype": "auto",
-            "greedy": True,
-            "do_sample": False,
-            "temperature": 0.2,
-            "top_p": 0.8,
+            "greedy": not sampling,
+            "do_sample": sampling,
+            "temperature": temperature,
+            "top_p": top_p,
         },
     }
+    if aggregate_filter_csv is not None:
+        config["aggregate_filter_csv"] = str(
+            Path(aggregate_filter_csv).expanduser().resolve()
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     for suffix_run in suffix_runs:
         Path(suffix_run["output_dir"]).mkdir(parents=True, exist_ok=True)
@@ -380,6 +434,18 @@ def main() -> int:
     args = parser.parse_args()
     if args.checkpoint_alias_start <= 0:
         parser.error("--checkpoint-alias-start must be greater than 0")
+    if args.all_checkpoints and args.checkpoints:
+        parser.error("--all-checkpoints cannot be combined with --checkpoints")
+    if args.all_checkpoints and not args.discover_checkpoints:
+        parser.error("--all-checkpoints requires --discover-checkpoints")
+    if args.pass_k <= 0:
+        parser.error("--pass-k must be greater than 0")
+    if args.suffix_bs <= 0:
+        parser.error("--suffix-bs must be greater than 0")
+    if args.temperature <= 0:
+        parser.error("--temperature must be greater than 0")
+    if not 0 < args.top_p <= 1:
+        parser.error("--top-p must be in the range (0, 1]")
     extra_evalplus_args = normalize_extra_evalplus_args(args.extra_evalplus_args)
 
     output_root = Path(args.output_root).expanduser().resolve()
@@ -446,6 +512,10 @@ def main() -> int:
                 suffix_runs=suffix_runs,
                 max_new_tokens=args.max_new_tokens,
                 batch_size=args.suffix_bs,
+                pass_k=args.pass_k,
+                temperature=args.temperature,
+                top_p=args.top_p,
+                aggregate_filter_csv=args.aggregate_filter_csv,
                 trust_remote_code=args.trust_remote_code,
             )
 
@@ -465,51 +535,52 @@ def main() -> int:
                 if not args.continue_on_error:
                     return return_code
 
-            evalplus_result_path = (
-                evalplus_root / args.evalplus_dataset / f"{run_slug}.eval_results.json"
-            )
-            evalplus_result_path.parent.mkdir(parents=True, exist_ok=True)
-            evalplus_cmd = [
-                sys.executable,
-                "-m",
-                "evalplus.evaluate",
-                "--model",
-                args.model,
-                "--peft-name",
-                peft_name,
-                "--peft-subfolder",
-                checkpoint,
-                "--dataset",
-                args.evalplus_dataset,
-                "--backend",
-                args.backend,
-                "--greedy",
-                "--defer-sanitize",
-                "--bs",
-                str(args.evalplus_bs),
-                "--force-base-prompt",
-                "--root",
-                str(evalplus_root),
-                "--output-file",
-                str(evalplus_result_path),
-                "--dtype",
-                args.dtype,
-            ]
-            if args.trust_remote_code:
-                evalplus_cmd.append("--trust-remote-code")
-            evalplus_cmd.extend(extra_evalplus_args)
+            if not args.skip_evalplus:
+                evalplus_result_path = (
+                    evalplus_root / args.evalplus_dataset / f"{run_slug}.eval_results.json"
+                )
+                evalplus_result_path.parent.mkdir(parents=True, exist_ok=True)
+                evalplus_cmd = [
+                    sys.executable,
+                    "-m",
+                    "evalplus.evaluate",
+                    "--model",
+                    args.model,
+                    "--peft-name",
+                    peft_name,
+                    "--peft-subfolder",
+                    checkpoint,
+                    "--dataset",
+                    args.evalplus_dataset,
+                    "--backend",
+                    args.backend,
+                    "--greedy",
+                    "--defer-sanitize",
+                    "--bs",
+                    str(args.evalplus_bs),
+                    "--force-base-prompt",
+                    "--root",
+                    str(evalplus_root),
+                    "--output-file",
+                    str(evalplus_result_path),
+                    "--dtype",
+                    args.dtype,
+                ]
+                if args.trust_remote_code:
+                    evalplus_cmd.append("--trust-remote-code")
+                evalplus_cmd.extend(extra_evalplus_args)
 
-            command_name = f"{peft_name} / {checkpoint} / evalplus"
-            return_code = run_command(
-                evalplus_cmd,
-                cwd=REPO_ROOT,
-                dry_run=args.dry_run,
-                env=evalplus_env(),
-            )
-            if return_code != 0:
-                failures.append((command_name, return_code))
-                if not args.continue_on_error:
-                    return return_code
+                command_name = f"{peft_name} / {checkpoint} / evalplus"
+                return_code = run_command(
+                    evalplus_cmd,
+                    cwd=REPO_ROOT,
+                    dry_run=args.dry_run,
+                    env=evalplus_env(),
+                )
+                if return_code != 0:
+                    failures.append((command_name, return_code))
+                    if not args.continue_on_error:
+                        return return_code
 
     if checkpoint_manifest:
         manifest_path = output_root / "checkpoint_manifest.json"

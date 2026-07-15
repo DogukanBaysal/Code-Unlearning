@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,73 @@ class EvaluationRow:
     prefix: str
     suffix: str
     metadata: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class AggregateUuidFilter:
+    source_csv: Path
+    split: str
+    eval_mode: str
+    uuids: frozenset[str]
+
+    def as_dict(self, matched_examples: int) -> dict[str, Any]:
+        return {
+            "source_csv": str(self.source_csv),
+            "split": self.split,
+            "eval_mode": self.eval_mode,
+            "num_selected_uuids": len(self.uuids),
+            "num_matched_examples": matched_examples,
+        }
+
+
+def load_aggregate_uuid_filter(
+    csv_path: Path,
+    config: DatasetEvalConfig,
+) -> AggregateUuidFilter:
+    split, eval_mode = aggregate_filter_selector(config)
+    with csv_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        required_columns = {"split", "eval_mode", "uuid"}
+        missing = sorted(required_columns - set(reader.fieldnames or ()))
+        if missing:
+            raise ValueError(
+                f"Aggregate filter CSV {csv_path} is missing column(s): "
+                f"{', '.join(missing)}"
+            )
+        uuids = frozenset(
+            row["uuid"].strip()
+            for row in reader
+            if row["split"].strip() == split
+            and row["eval_mode"].strip() == eval_mode
+            and row["uuid"].strip()
+        )
+    if not uuids:
+        raise ValueError(
+            f"Aggregate filter CSV {csv_path} has no UUIDs for "
+            f"split={split!r}, eval_mode={eval_mode!r}"
+        )
+    return AggregateUuidFilter(
+        source_csv=csv_path,
+        split=split,
+        eval_mode=eval_mode,
+        uuids=uuids,
+    )
+
+
+def aggregate_filter_selector(config: DatasetEvalConfig) -> tuple[str, str]:
+    dataset_key = (config.label or config.dataset_name.rsplit("/", 1)[-1]).lower()
+    dataset_key = dataset_key.replace("-", "_")
+    if dataset_key == "forget":
+        eval_mode = "secret" if config.mode == "secret" else "code-unit"
+        return "forget", eval_mode
+    if dataset_key in {"retain", "retain_half"}:
+        return "retain", "code"
+    if dataset_key in {"approximate", "held_out_approximate"}:
+        return "held_out_approximate", "code"
+    raise ValueError(
+        "Could not map aggregate filter rows for dataset "
+        f"{config.label or config.dataset_name!r}; expected forget, retain, or approximate"
+    )
 
 
 def load_evaluation_dataset(config: DatasetEvalConfig) -> Dataset:
