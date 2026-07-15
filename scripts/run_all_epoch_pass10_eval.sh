@@ -12,6 +12,8 @@ MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-2056}"
 SUFFIX_BS="${SUFFIX_BS:-64}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-${REPO_ROOT}/Results/all_epoch_pass10_eval}"
 AGGREGATE_FILTER_CSV="${AGGREGATE_FILTER_CSV:-${REPO_ROOT}/UnlearningEvaluation/non_exact_matches.csv}"
+# Optional comma- or space-separated override; automatic Hub discovery is used when empty.
+CHECKPOINTS="${CHECKPOINTS:-}"
 
 model_specs=(
     "qwen2_5_coder_3b|Qwen/Qwen2.5-Coder-3B"
@@ -73,14 +75,53 @@ if [ "${#gpu_ids[@]}" -eq 0 ]; then
 fi
 
 jobs=()
+discovery_status=0
 for task in "${tasks[@]}"; do
     for model_spec in "${model_specs[@]}"; do
         IFS="|" read -r model_key base_model <<< "${model_spec}"
         for method in "${methods[@]}"; do
-            jobs+=("${task}|${model_key}|${base_model}|${method}")
+            peft_name="dbaysal/${task}-unlearning-${model_key}-${method}"
+            checkpoint_list=""
+            if [ -n "${CHECKPOINTS}" ]; then
+                normalized_checkpoints="${CHECKPOINTS//,/ }"
+                read -r -a override_checkpoints <<< "${normalized_checkpoints}"
+                printf -v checkpoint_list '%s\n' "${override_checkpoints[@]}"
+            elif ! checkpoint_list="$(
+                python scripts/run_adapter_eval_suite.py \
+                    --model "${base_model}" \
+                    --peft-names "${peft_name}" \
+                    --discover-checkpoints \
+                    --all-checkpoints \
+                    --list-checkpoints-only
+            )"; then
+                echo "Checkpoint discovery failed: ${peft_name}" >&2
+                discovery_status=1
+                continue
+            fi
+
+            checkpoint_index=0
+            while IFS= read -r checkpoint; do
+                if [ -z "${checkpoint}" ]; then
+                    continue
+                fi
+                checkpoint_index=$((checkpoint_index + 1))
+                jobs+=(
+                    "${task}|${model_key}|${base_model}|${method}|${checkpoint}|${checkpoint_index}"
+                )
+            done <<< "${checkpoint_list}"
+
+            if [ "${checkpoint_index}" -eq 0 ]; then
+                echo "No checkpoints found: ${peft_name}" >&2
+                discovery_status=1
+            fi
         done
     done
 done
+
+if [ "${#jobs[@]}" -eq 0 ]; then
+    echo "No checkpoint evaluation jobs were created." >&2
+    exit 1
+fi
 
 run_eval_job() {
     local gpu_id="$1"
@@ -88,11 +129,13 @@ run_eval_job() {
     local model_key="$3"
     local base_model="$4"
     local method="$5"
-    shift 5
+    local checkpoint="$6"
+    local epoch_index="$7"
+    shift 7
 
     local peft_name="dbaysal/${task}-unlearning-${model_key}-${method}"
     local task_output_name="${task/-/_}"
-    local output_root="${OUTPUT_ROOT}/${task_output_name}/${model_key}/${method}"
+    local output_root="${OUTPUT_ROOT}/${task_output_name}/${model_key}/${method}/epoch-${epoch_index}"
     local aggregate_filter_csv="${AGGREGATE_FILTER_CSV}"
     local forget_prefix_column="prefix"
     local forget_suffix_column="suffix"
@@ -110,7 +153,8 @@ run_eval_job() {
     fi
 
     echo
-    echo "GPU ${gpu_id}: task=${task}, model=${model_key}, method=${method}"
+    echo "GPU ${gpu_id}: task=${task}, model=${model_key}, method=${method}, epoch=${epoch_index}"
+    echo "GPU ${gpu_id}: checkpoint=${checkpoint}"
     echo "GPU ${gpu_id}: adapter=${peft_name}"
     echo "GPU ${gpu_id}: output=${output_root}"
     echo "GPU ${gpu_id}: aggregate_filter_csv=${aggregate_filter_csv}"
@@ -118,9 +162,7 @@ run_eval_job() {
     CUDA_VISIBLE_DEVICES="${gpu_id}" python scripts/run_adapter_eval_suite.py \
         --model "${base_model}" \
         --peft-names "${peft_name}" \
-        --discover-checkpoints \
-        --all-checkpoints \
-        --alias-checkpoints-as-epochs \
+        --checkpoints "${checkpoint}" \
         --output-root "${output_root}" \
         --forget-dataset "dbaysal/forget" \
         --forget-prefix-column "${forget_prefix_column}" \
@@ -157,9 +199,16 @@ run_worker() {
         local model_key
         local base_model
         local method
-        IFS="|" read -r task model_key base_model method <<< "${jobs[${job_index}]}"
-        if ! run_eval_job "${gpu_id}" "${task}" "${model_key}" "${base_model}" "${method}" "$@"; then
-            echo "GPU ${gpu_id}: FAILED task=${task}, model=${model_key}, method=${method}" >&2
+        local checkpoint
+        local epoch_index
+        IFS="|" read -r task model_key base_model method checkpoint epoch_index \
+            <<< "${jobs[${job_index}]}"
+        if ! run_eval_job \
+            "${gpu_id}" "${task}" "${model_key}" "${base_model}" "${method}" \
+            "${checkpoint}" "${epoch_index}" "$@"; then
+            echo \
+                "GPU ${gpu_id}: FAILED task=${task}, model=${model_key}, method=${method}, epoch=${epoch_index}" \
+                >&2
             status=1
         fi
     done
@@ -167,7 +216,7 @@ run_worker() {
 }
 
 echo "Detected ${#gpu_ids[@]} GPU worker(s): ${gpu_ids[*]}"
-echo "Queued ${#jobs[@]} adapter jobs; every discovered checkpoint will be evaluated."
+echo "Queued ${#jobs[@]} checkpoint jobs; epochs are distributed across GPU workers."
 echo "Suffix evaluation: pass@${PASS_K}, temperature=${TEMPERATURE}, top_p=${TOP_P}, batch_size=${SUFFIX_BS}"
 
 log_dir="${OUTPUT_ROOT}/logs"
@@ -182,7 +231,7 @@ for worker_index in "${!gpu_ids[@]}"; do
     pids+=("$!")
 done
 
-status=0
+status="${discovery_status}"
 for pid in "${pids[@]}"; do
     if ! wait "${pid}"; then
         status=1

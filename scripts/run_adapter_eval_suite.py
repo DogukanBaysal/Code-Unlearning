@@ -67,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Evaluate every discovered checkpoint subfolder.",
     )
     parser.add_argument(
+        "--list-checkpoints-only",
+        action="store_true",
+        help="Print resolved checkpoint names and exit without running evaluations.",
+    )
+    parser.add_argument(
         "--checkpoint-selection",
         choices=["first", "last"],
         default="first",
@@ -447,6 +452,21 @@ def main() -> int:
     if not 0 < args.top_p <= 1:
         parser.error("--top-p must be in the range (0, 1]")
     extra_evalplus_args = normalize_extra_evalplus_args(args.extra_evalplus_args)
+
+    if args.list_checkpoints_only:
+        if len(args.peft_names) != 1:
+            parser.error("--list-checkpoints-only requires exactly one --peft-names value")
+        try:
+            checkpoints = resolve_checkpoints(args, args.peft_names[0])
+        except Exception as exc:
+            print(
+                f"Checkpoint resolution failed for {args.peft_names[0]!r}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        for checkpoint in checkpoints:
+            print(checkpoint)
+        return 0
 
     output_root = Path(args.output_root).expanduser().resolve()
     config_root = output_root / "configs"
