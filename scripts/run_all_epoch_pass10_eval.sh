@@ -222,36 +222,40 @@ run_eval_job() {
         "$@"
 }
 
-run_worker() {
+launch_job() {
     local worker_index="$1"
-    local gpu_id="$2"
+    local job_index="$2"
     shift 2
 
-    local status=0
-    local job_index
-    for ((job_index = worker_index; job_index < ${#jobs[@]}; job_index += ${#gpu_ids[@]})); do
-        local task
-        local model_key
-        local base_model
-        local method
-        local checkpoint
-        local epoch_index
-        IFS="|" read -r task model_key base_model method checkpoint epoch_index \
-            <<< "${jobs[${job_index}]}"
+    local gpu_id="${gpu_ids[${worker_index}]}"
+    local task
+    local model_key
+    local base_model
+    local method
+    local checkpoint
+    local epoch_index
+    IFS="|" read -r task model_key base_model method checkpoint epoch_index \
+        <<< "${jobs[${job_index}]}"
+
+    local log_file="${log_dir}/gpu-${gpu_id}.txt"
+    (
+        echo
+        echo "Dispatcher: assigned job $((job_index + 1))/${#jobs[@]} to GPU ${gpu_id}"
         if ! run_eval_job \
             "${gpu_id}" "${task}" "${model_key}" "${base_model}" "${method}" \
             "${checkpoint}" "${epoch_index}" "$@"; then
             echo \
                 "GPU ${gpu_id}: FAILED task=${task}, model=${model_key}, method=${method}, epoch=${epoch_index}" \
                 >&2
-            status=1
+            exit 1
         fi
-    done
-    return "${status}"
+    ) >> "${log_file}" 2>&1 &
+
+    pids[${worker_index}]="$!"
 }
 
 echo "Detected ${#gpu_ids[@]} GPU worker(s): ${gpu_ids[*]}"
-echo "Queued ${#jobs[@]} checkpoint jobs; epochs are distributed across GPU workers."
+echo "Queued ${#jobs[@]} checkpoint jobs; the next pending epoch goes to the first free GPU."
 echo "Suffix evaluation: pass@${PASS_K}, temperature=${TEMPERATURE}, top_p=${TOP_P}, batch_size=${SUFFIX_BS}"
 echo "Skip complete destinations: ${SKIP_EXISTING}"
 
@@ -262,15 +266,50 @@ pids=()
 for worker_index in "${!gpu_ids[@]}"; do
     gpu_id="${gpu_ids[${worker_index}]}"
     log_file="${log_dir}/gpu-${gpu_id}.txt"
+    : > "${log_file}"
     echo "GPU ${gpu_id} log: ${log_file}"
-    run_worker "${worker_index}" "${gpu_id}" "$@" > "${log_file}" 2>&1 &
-    pids+=("$!")
+    pids+=("")
 done
 
 status="${discovery_status}"
-for pid in "${pids[@]}"; do
-    if ! wait "${pid}"; then
-        status=1
+next_job_index=0
+active_jobs=0
+
+# Initially give each GPU at most one job. After that, jobs are assigned only
+# when a GPU finishes, so faster GPUs automatically process more epochs.
+for worker_index in "${!gpu_ids[@]}"; do
+    if [ "${next_job_index}" -ge "${#jobs[@]}" ]; then
+        break
+    fi
+    launch_job "${worker_index}" "${next_job_index}" "$@"
+    next_job_index=$((next_job_index + 1))
+    active_jobs=$((active_jobs + 1))
+done
+
+while [ "${active_jobs}" -gt 0 ]; do
+    completion_found=0
+    for worker_index in "${!gpu_ids[@]}"; do
+        pid="${pids[${worker_index}]:-}"
+        if [ -z "${pid}" ] || kill -0 "${pid}" 2>/dev/null; then
+            continue
+        fi
+
+        if ! wait "${pid}"; then
+            status=1
+        fi
+        pids[${worker_index}]=""
+        active_jobs=$((active_jobs - 1))
+        completion_found=1
+
+        if [ "${next_job_index}" -lt "${#jobs[@]}" ]; then
+            launch_job "${worker_index}" "${next_job_index}" "$@"
+            next_job_index=$((next_job_index + 1))
+            active_jobs=$((active_jobs + 1))
+        fi
+    done
+
+    if [ "${completion_found}" -eq 0 ]; then
+        sleep 1
     fi
 done
 
