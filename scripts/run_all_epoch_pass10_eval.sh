@@ -11,7 +11,7 @@ TOP_P="${TOP_P:-0.95}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-2056}"
 SUFFIX_BS="${SUFFIX_BS:-64}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-${REPO_ROOT}/Results/all_epoch_pass10_eval}"
-AGGREGATE_FILTER_CSV_DIR="${AGGREGATE_FILTER_CSV_DIR:-${SCRIPT_DIR}}"
+AGGREGATE_FILTER_CSV="${AGGREGATE_FILTER_CSV:-${REPO_ROOT}/UnlearningEvaluation/non_exact_matches.csv}"
 
 model_specs=(
     "qwen2_5_coder_3b|Qwen/Qwen2.5-Coder-3B"
@@ -93,8 +93,7 @@ run_eval_job() {
     local peft_name="dbaysal/${task}-unlearning-${model_key}-${method}"
     local task_output_name="${task/-/_}"
     local output_root="${OUTPUT_ROOT}/${task_output_name}/${model_key}/${method}"
-    local aggregate_filter_csv
-    aggregate_filter_csv="${AGGREGATE_FILTER_CSV_DIR}/${model_key}_unlearning_exact_matches_with_uids.csv"
+    local aggregate_filter_csv="${AGGREGATE_FILTER_CSV}"
     local forget_prefix_column="prefix"
     local forget_suffix_column="suffix"
     local forget_mode="code"

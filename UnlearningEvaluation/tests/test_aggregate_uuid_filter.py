@@ -5,7 +5,11 @@ import unittest
 from pathlib import Path
 
 from suffix_eval.config import DatasetEvalConfig
-from suffix_eval.data import aggregate_filter_selector, load_aggregate_uuid_filter
+from suffix_eval.data import (
+    aggregate_filter_model_dir,
+    aggregate_filter_selector,
+    load_aggregate_uuid_filter,
+)
 
 
 class AggregateUuidFilterTests(unittest.TestCase):
@@ -41,11 +45,11 @@ class AggregateUuidFilterTests(unittest.TestCase):
     def test_filter_loads_only_the_matching_split_and_mode(self) -> None:
         csv_text = "\n".join(
             (
-                "split,eval_mode,uuid",
-                "forget,secret,secret-id",
-                "forget,code-unit,code-id",
-                "retain,code,retain-id",
-                "held_out_approximate,code,approximate-id",
+                "model_dir,split,eval_mode,uuid",
+                "qwen2_5_coder_3b,forget,secret,secret-id",
+                "qwen2_5_coder_3b,forget,code-unit,code-id",
+                "meta_llama3_2_3b,forget,code-unit,meta-code-id",
+                "qwen2_5_coder_3b,retain,code,retain-id",
             )
         )
         with tempfile.TemporaryDirectory() as directory:
@@ -54,11 +58,23 @@ class AggregateUuidFilterTests(unittest.TestCase):
             uuid_filter = load_aggregate_uuid_filter(
                 csv_path,
                 self.make_config("forget", "code"),
+                "Qwen/Qwen2.5-Coder-3B",
             )
 
-        self.assertEqual(uuid_filter.uuids, frozenset({"code-id"}))
+        self.assertEqual(uuid_filter.excluded_uuids, frozenset({"code-id"}))
+        self.assertEqual(uuid_filter.model_dir, "qwen2_5_coder_3b")
         self.assertEqual(uuid_filter.split, "forget")
         self.assertEqual(uuid_filter.eval_mode, "code-unit")
+
+    def test_model_names_map_to_csv_model_directories(self) -> None:
+        self.assertEqual(
+            aggregate_filter_model_dir("Qwen/Qwen2.5-Coder-3B"),
+            "qwen2_5_coder_3b",
+        )
+        self.assertEqual(
+            aggregate_filter_model_dir("meta-llama/Llama-3.2-3B"),
+            "meta_llama3_2_3b",
+        )
 
 
 if __name__ == "__main__":
