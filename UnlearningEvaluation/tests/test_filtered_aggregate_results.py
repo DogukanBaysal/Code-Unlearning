@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import torch
 
@@ -47,6 +47,16 @@ def fake_generate(rows, model, tokenizer, device, settings):  # type: ignore[no-
 
 
 class FilteredAggregateResultsTests(unittest.TestCase):
+    def write_complete_outputs(self, output_dir: Path) -> None:
+        output_dir.mkdir(parents=True)
+        for filename in (
+            "row_results.jsonl",
+            "all_results.jsonl",
+            "aggregate_results.json",
+            "aggregate_results_filtered.json",
+        ):
+            (output_dir / filename).write_text("complete\n", encoding="utf-8")
+
     def test_original_and_uuid_filtered_aggregates_are_written_separately(self) -> None:
         dataset = FakeDataset(
             [
@@ -126,6 +136,79 @@ class FilteredAggregateResultsTests(unittest.TestCase):
             list(filtered["pass_at_k"]),
             ["pass@1", "pass@5", "pass@10"],
         )
+
+    def test_run_skips_only_completed_datasets(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            completed_config = DatasetEvalConfig(
+                dataset_name="dbaysal/retain-full",
+                prefix_column="prefix",
+                suffix_column="suffix",
+                uuid_column="uuid",
+                mode="code",
+                output_dir=root / "retain",
+                label="retain",
+            )
+            pending_config = DatasetEvalConfig(
+                dataset_name="dbaysal/forget",
+                prefix_column="secret_prefix",
+                suffix_column="secret_suffix",
+                uuid_column="uuid",
+                mode="secret",
+                output_dir=root / "forget",
+                label="forget",
+            )
+            self.write_complete_outputs(completed_config.output_dir)
+            filter_csv = root / "filter.csv"
+            filter_csv.write_text("filter\n", encoding="utf-8")
+            suite_config = EvalConfig(
+                model_name="Qwen/Qwen2.5-Coder-3B",
+                aggregate_filter_csv=filter_csv,
+                datasets=[completed_config, pending_config],
+            )
+            loaded = SimpleNamespace(model=MagicMock(), tokenizer=MagicMock())
+            loaded.tokenizer.__len__.return_value = 1
+            loaded.model.get_input_embeddings.return_value = SimpleNamespace(
+                num_embeddings=1
+            )
+
+            with (
+                patch.object(
+                    evaluate_suffix_generation,
+                    "load_model_and_tokenizer",
+                    return_value=loaded,
+                ) as load_model,
+                patch.object(evaluate_suffix_generation, "run_dataset") as run_dataset,
+            ):
+                evaluate_suffix_generation.run(suite_config)
+
+        load_model.assert_called_once_with(suite_config)
+        run_dataset.assert_called_once_with(pending_config, suite_config, loaded)
+
+    def test_run_avoids_model_loading_when_every_dataset_is_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            dataset_config = DatasetEvalConfig(
+                dataset_name="dbaysal/retain-full",
+                prefix_column="prefix",
+                suffix_column="suffix",
+                uuid_column="uuid",
+                mode="code",
+                output_dir=Path(directory) / "retain",
+                label="retain",
+            )
+            self.write_complete_outputs(dataset_config.output_dir)
+            suite_config = EvalConfig(
+                model_name="Qwen/Qwen2.5-Coder-3B",
+                datasets=[dataset_config],
+            )
+
+            with patch.object(
+                evaluate_suffix_generation,
+                "load_model_and_tokenizer",
+            ) as load_model:
+                evaluate_suffix_generation.run(suite_config)
+
+        load_model.assert_not_called()
 
 
 if __name__ == "__main__":
