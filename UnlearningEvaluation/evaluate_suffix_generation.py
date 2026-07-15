@@ -28,6 +28,11 @@ from suffix_eval.scoring import ScoreResult, build_scorer
 
 
 LOGGER = logging.getLogger("suffix_eval")
+BASE_RESULT_FILENAMES = (
+    "row_results.jsonl",
+    "all_results.jsonl",
+    "aggregate_results.json",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,6 +47,19 @@ def batched(iterator, batch_size: int):  # type: ignore[no-untyped-def]
         if not batch:
             break
         yield batch
+
+
+def dataset_outputs_complete(
+    config: DatasetEvalConfig,
+    include_filtered_aggregate: bool,
+) -> bool:
+    result_filenames = list(BASE_RESULT_FILENAMES)
+    if include_filtered_aggregate:
+        result_filenames.append("aggregate_results_filtered.json")
+    return all(
+        path.is_file() and path.stat().st_size > 0
+        for path in (config.output_dir / name for name in result_filenames)
+    )
 
 
 def run_dataset(config: DatasetEvalConfig, suite_config: EvalConfig, loaded) -> None:  # type: ignore[no-untyped-def]
@@ -231,12 +249,28 @@ def run_dataset(config: DatasetEvalConfig, suite_config: EvalConfig, loaded) -> 
 
 
 def run(config: EvalConfig) -> None:
+    include_filtered_aggregate = config.aggregate_filter_csv is not None
+    pending_datasets = []
+    for dataset_config in config.datasets:
+        if dataset_outputs_complete(dataset_config, include_filtered_aggregate):
+            LOGGER.info(
+                "Skipping completed dataset %s at %s",
+                dataset_config.label or dataset_config.dataset_name,
+                dataset_config.output_dir,
+            )
+        else:
+            pending_datasets.append(dataset_config)
+
+    if not pending_datasets:
+        LOGGER.info("All dataset outputs are complete; skipping model loading")
+        return
+
     LOGGER.info("Loading model %s", config.model_name)
     loaded = load_model_and_tokenizer(config)
     if len(loaded.tokenizer) > loaded.model.get_input_embeddings().num_embeddings:
         loaded.model.resize_token_embeddings(len(loaded.tokenizer))
 
-    for dataset_config in config.datasets:
+    for dataset_config in pending_datasets:
         run_dataset(dataset_config, config, loaded)
 
 

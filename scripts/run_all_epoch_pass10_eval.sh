@@ -14,6 +14,7 @@ OUTPUT_ROOT="${OUTPUT_ROOT:-${REPO_ROOT}/Results/all_epoch_pass10_eval}"
 AGGREGATE_FILTER_CSV="${AGGREGATE_FILTER_CSV:-${REPO_ROOT}/UnlearningEvaluation/non_exact_matches.csv}"
 # Optional comma- or space-separated override; automatic Hub discovery is used when empty.
 CHECKPOINTS="${CHECKPOINTS:-}"
+SKIP_EXISTING="${SKIP_EXISTING:-1}"
 
 model_specs=(
     "qwen2_5_coder_3b|Qwen/Qwen2.5-Coder-3B"
@@ -123,6 +124,30 @@ if [ "${#jobs[@]}" -eq 0 ]; then
     exit 1
 fi
 
+evaluation_outputs_complete() {
+    local output_root="$1"
+    local peft_name="$2"
+    local checkpoint="$3"
+    local adapter_slug="${peft_name//\//--}"
+    local run_slug="${adapter_slug}_${checkpoint}"
+    local dataset_label
+    local result_name
+
+    for dataset_label in forget retain approximate; do
+        local result_dir="${output_root}/unlearningeval/${dataset_label}/${run_slug}"
+        for result_name in \
+            row_results.jsonl \
+            all_results.jsonl \
+            aggregate_results.json \
+            aggregate_results_filtered.json; do
+            if [ ! -s "${result_dir}/${result_name}" ]; then
+                return 1
+            fi
+        done
+    done
+    return 0
+}
+
 run_eval_job() {
     local gpu_id="$1"
     local task="$2"
@@ -145,6 +170,16 @@ run_eval_job() {
         forget_prefix_column="secret_prefix"
         forget_suffix_column="secret_suffix"
         forget_mode="secret"
+    fi
+
+    if [ "${SKIP_EXISTING}" = "1" ] && \
+        evaluation_outputs_complete "${output_root}" "${peft_name}" "${checkpoint}"; then
+        echo
+        echo "GPU ${gpu_id}: SKIPPED complete destination"
+        echo "GPU ${gpu_id}: task=${task}, model=${model_key}, method=${method}, epoch=${epoch_index}"
+        echo "GPU ${gpu_id}: checkpoint=${checkpoint}"
+        echo "GPU ${gpu_id}: output=${output_root}"
+        return 0
     fi
 
     if [ ! -f "${aggregate_filter_csv}" ]; then
@@ -218,6 +253,7 @@ run_worker() {
 echo "Detected ${#gpu_ids[@]} GPU worker(s): ${gpu_ids[*]}"
 echo "Queued ${#jobs[@]} checkpoint jobs; epochs are distributed across GPU workers."
 echo "Suffix evaluation: pass@${PASS_K}, temperature=${TEMPERATURE}, top_p=${TOP_P}, batch_size=${SUFFIX_BS}"
+echo "Skip complete destinations: ${SKIP_EXISTING}"
 
 log_dir="${OUTPUT_ROOT}/logs"
 mkdir -p "${log_dir}"

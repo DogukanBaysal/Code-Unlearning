@@ -106,6 +106,11 @@ Each JSONL row contains:
 The filtered aggregate has the same fields plus `uuid_filter`, which records the source
 CSV, exclusion operation, selected model/split/mode, and included/excluded counts.
 
+On restart, each configured dataset is checked independently. A dataset is skipped when
+all of its expected result files exist and are non-empty. Incomplete datasets are rerun,
+while completed forget, retain, or approximate outputs are preserved. If every dataset
+is complete, the evaluator exits before loading the model.
+
 For `mode: code`, BLEU is used. For `mode: secret`, chrF is used. Scores are
 stored on a normalized `0.0` to `1.0` scale.
 If scoring fails for an individual row, that row is kept in `row_results.jsonl`,
