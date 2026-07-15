@@ -13,6 +13,7 @@ from suffix_eval.data import EvaluationRow
 class GeneratedRow:
     row: EvaluationRow
     generated_suffix: str
+    pass_index: int
     target_token_count: int
     max_new_tokens_used: int
 
@@ -41,6 +42,7 @@ def generate_suffix_batch(
     max_new_tokens_used = min(settings.max_new_tokens, max(target_token_counts))
 
     generation_kwargs = settings.to_generation_kwargs()
+    generation_kwargs["num_return_sequences"] = settings.pass_k
     generation_kwargs["pad_token_id"] = tokenizer.pad_token_id
     if tokenizer.eos_token_id is not None:
         generation_kwargs["eos_token_id"] = tokenizer.eos_token_id
@@ -53,16 +55,21 @@ def generate_suffix_batch(
 
     input_length = inputs["input_ids"].shape[1]
     generated_rows: list[GeneratedRow] = []
-    for index, row in enumerate(rows):
-        generated_ids = output_ids[index][input_length:]
-        capped_ids = generated_ids[: target_token_counts[index]]
-        generated_text = tokenizer.decode(capped_ids, skip_special_tokens=True)
-        generated_rows.append(
-            GeneratedRow(
-                row=row,
-                generated_suffix=generated_text,
-                target_token_count=target_token_counts[index],
-                max_new_tokens_used=min(settings.max_new_tokens, target_token_counts[index]),
+    for row_index, row in enumerate(rows):
+        for pass_index in range(settings.pass_k):
+            output_index = row_index * settings.pass_k + pass_index
+            generated_ids = output_ids[output_index][input_length:]
+            capped_ids = generated_ids[: target_token_counts[row_index]]
+            generated_text = tokenizer.decode(capped_ids, skip_special_tokens=True)
+            generated_rows.append(
+                GeneratedRow(
+                    row=row,
+                    generated_suffix=generated_text,
+                    pass_index=pass_index,
+                    target_token_count=target_token_counts[row_index],
+                    max_new_tokens_used=min(
+                        settings.max_new_tokens, target_token_counts[row_index]
+                    ),
+                )
             )
-        )
     return generated_rows

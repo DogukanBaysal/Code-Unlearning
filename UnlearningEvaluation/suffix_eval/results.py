@@ -12,6 +12,23 @@ from suffix_eval.generation import GeneratedRow
 from suffix_eval.scoring import ScoreResult
 
 
+def pass_at_k_cutoffs(pass_k: int) -> tuple[int, ...]:
+    if pass_k <= 0:
+        raise ValueError("pass_k must be greater than 0")
+    cutoffs = {1, pass_k}
+    cutoffs.update(cutoff for cutoff in (5, 10) if cutoff <= pass_k)
+    return tuple(sorted(cutoffs))
+
+
+def max_similarity_at_k(scores: list[float]) -> dict[int, float]:
+    if not scores:
+        raise ValueError("scores must not be empty")
+    return {
+        cutoff: max(scores[:cutoff])
+        for cutoff in pass_at_k_cutoffs(len(scores))
+    }
+
+
 @dataclass
 class AggregateTracker:
     group_columns: tuple[str, ...]
@@ -60,6 +77,7 @@ class JsonlWriter(AbstractContextManager["JsonlWriter"]):
         score: ScoreResult,
         generation_params: dict[str, Any],
         score_error: str | None = None,
+        is_worst_case: bool = False,
     ) -> None:
         if self._handle is None:
             raise RuntimeError("JsonlWriter must be used as a context manager")
@@ -70,6 +88,8 @@ class JsonlWriter(AbstractContextManager["JsonlWriter"]):
             "generated_suffix": generated.generated_suffix,
             "score_type": score.metric,
             "score_value": score.value,
+            "pass_index": generated.pass_index,
+            "is_worst_case": is_worst_case,
             "metadata": generated.row.metadata,
             "generation": {
                 **generation_params,
@@ -89,17 +109,41 @@ def write_aggregate_results(
     num_examples: int,
     average_score: float,
     grouped_averages: dict[str, dict[str, float]],
+    pass_k: int = 1,
+    num_generated_results: int | None = None,
     score_failures: int = 0,
+    pass_at_k_results: (
+        dict[int, tuple[float, dict[str, dict[str, float]]]] | None
+    ) = None,
+    uuid_filter: dict[str, Any] | None = None,
 ) -> None:
+    if num_generated_results is None:
+        num_generated_results = num_examples * pass_k
+    if pass_at_k_results is None:
+        pass_at_k_results = {pass_k: (average_score, grouped_averages)}
     payload = {
         "mode": config.mode,
         "num_evaluated_examples": num_examples,
+        "num_generated_results": num_generated_results,
         "average_similarity_score": average_score,
         "score_metric": metric,
+        "pass_k": pass_k,
+        "pass_k_aggregation": "max_similarity",
+        "pass_at_k": {
+            f"pass@{cutoff}": {
+                "average_similarity_score": cutoff_average,
+                "grouped_averages": cutoff_grouped_averages,
+            }
+            for cutoff, (cutoff_average, cutoff_grouped_averages) in sorted(
+                pass_at_k_results.items()
+            )
+        },
         "score_failures": score_failures,
         "grouped_averages": grouped_averages,
         "config": config.as_dict(),
     }
+    if uuid_filter is not None:
+        payload["uuid_filter"] = uuid_filter
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2)

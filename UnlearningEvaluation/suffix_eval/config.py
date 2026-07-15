@@ -10,6 +10,7 @@ import yaml
 VALID_MODES = {"code", "secret"}
 GENERATION_KEYS = {
     "max_new_tokens",
+    "pass_k",
     "temperature",
     "top_p",
     "do_sample",
@@ -23,6 +24,7 @@ MODEL_KEYS = {
     "tokenizer_name",
     "peft_name",
     "peft_subfolder",
+    "aggregate_filter_csv",
     "trust_remote_code",
 }
 DATASET_KEYS = {
@@ -41,6 +43,7 @@ DATASET_KEYS = {
 @dataclass
 class GenerationSettings:
     max_new_tokens: int = 128
+    pass_k: int = 1
     temperature: float | None = None
     top_p: float | None = None
     do_sample: bool = False
@@ -64,6 +67,8 @@ class GenerationSettings:
     def validate(self) -> None:
         if self.max_new_tokens <= 0:
             raise ValueError("generation.max_new_tokens must be greater than 0")
+        if not isinstance(self.pass_k, int) or isinstance(self.pass_k, bool) or self.pass_k <= 0:
+            raise ValueError("generation.pass_k must be a positive integer")
         if self.batch_size <= 0:
             raise ValueError("generation.batch_size must be greater than 0")
         if self.temperature is not None and self.temperature <= 0:
@@ -75,6 +80,11 @@ class GenerationSettings:
             self.do_sample = False
             self.temperature = None
             self.top_p = None
+
+        if self.pass_k > 1 and not self.do_sample:
+            raise ValueError(
+                "generation.pass_k greater than 1 requires generation.do_sample: true"
+            )
 
     def to_generation_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
@@ -149,6 +159,7 @@ class EvalConfig:
     tokenizer_name: str | None = None
     peft_name: str | None = None
     peft_subfolder: str | None = None
+    aggregate_filter_csv: Path | None = None
     trust_remote_code: bool = False
     generation: GenerationSettings = field(default_factory=GenerationSettings)
     datasets: list[DatasetEvalConfig] = field(default_factory=list)
@@ -179,6 +190,11 @@ class EvalConfig:
         unknown = sorted(set(raw))
         if unknown:
             raise ValueError(f"Unknown config key(s): {', '.join(unknown)}")
+
+        if model_values.get("aggregate_filter_csv") is not None:
+            model_values["aggregate_filter_csv"] = Path(
+                model_values["aggregate_filter_csv"]
+            ).expanduser()
 
         config = cls(
             **model_values,
@@ -215,8 +231,14 @@ class EvalConfig:
     def validate(self) -> None:
         if not self.datasets:
             raise ValueError("At least one dataset evaluation config is required")
+        if self.aggregate_filter_csv is not None and not self.aggregate_filter_csv.is_file():
+            raise ValueError(
+                f"aggregate_filter_csv does not exist: {self.aggregate_filter_csv}"
+            )
 
     def as_dict(self) -> dict[str, Any]:
         data = asdict(self)
+        if self.aggregate_filter_csv is not None:
+            data["aggregate_filter_csv"] = str(self.aggregate_filter_csv)
         data["datasets"] = [dataset.as_dict() for dataset in self.datasets]
         return data
