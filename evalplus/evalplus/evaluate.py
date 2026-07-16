@@ -17,9 +17,9 @@ from tqdm import tqdm
 from evalplus.codegen import run_codegen
 from evalplus.config import *
 from evalplus.data import (
-    COMBINED_EVAL_COMPONENTS,
     COMBINED_EVAL_DATASET,
     get_combined_eval_datasets,
+    get_combined_eval_components,
     get_forget_eval,
     get_forget_eval_hash,
     get_human_eval_plus,
@@ -50,6 +50,12 @@ from evalplus.gen.util import trusted_exec
 # 1st item: the status
 # 2nd item (optional): the detailed pass/fail boolean for each input
 Result = Tuple[str, List[bool]]
+
+
+def get_report_k_values(num_samples: int) -> List[int]:
+    if num_samples <= 0:
+        raise ValueError("num_samples must be greater than zero")
+    return sorted({1, (num_samples + 1) // 2, num_samples})
 
 
 def get_groundtruth(problems, hashcode, tasks_only_output_not_none):
@@ -221,6 +227,7 @@ def backup_existing_result_interactively(result_path: str) -> None:
 
 
 def evaluate_combined(
+    dataset: str = COMBINED_EVAL_DATASET,
     samples: Optional[str] = None,
     output_file: Optional[str] = None,
     parallel: Optional[int] = None,
@@ -242,7 +249,7 @@ def evaluate_combined(
         )
 
         samples = run_codegen(
-            dataset=COMBINED_EVAL_DATASET,
+            dataset=dataset,
             gguf_file=gguf_file,
             num_ctx=num_ctx,
             defer_sanitize=defer_sanitize,
@@ -258,7 +265,11 @@ def evaluate_combined(
     if os.path.isfile(result_path) and i_just_wanna_run:
         backup_existing_result_interactively(result_path)
 
-    problems_by_dataset = get_combined_eval_datasets(version=version)
+    problems_by_dataset = get_combined_eval_datasets(
+        version=version,
+        dataset=dataset,
+    )
+    components = get_combined_eval_components(dataset)
     parts_dir = get_combined_parts_dir(result_path)
     samples_dir = os.path.join(parts_dir, "samples")
     results_dir = os.path.join(parts_dir, "results")
@@ -268,7 +279,7 @@ def evaluate_combined(
     component_results = {}
     component_result_paths = {}
 
-    for component in COMBINED_EVAL_COMPONENTS:
+    for component in components:
         component_result_path = os.path.join(results_dir, f"{component}.json")
         component_result_paths[component] = component_result_path
         evaluate(
@@ -289,7 +300,7 @@ def evaluate_combined(
 
     combined_results = {
         "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "dataset": COMBINED_EVAL_DATASET,
+        "dataset": dataset,
         "hash": {
             component: result.get("hash")
             for component, result in component_results.items()
@@ -334,8 +345,9 @@ def evaluate(
     elif is_combined_eval_dataset(dataset):
         dataset = normalize_combined_eval_dataset_name(dataset)
 
-    if dataset == COMBINED_EVAL_DATASET:
+    if is_combined_eval_dataset(dataset):
         evaluate_combined(
+            dataset=dataset,
             samples=samples,
             output_file=output_file,
             parallel=parallel,
@@ -544,9 +556,11 @@ def evaluate(
             )
     base_correct = np.array(base_correct)
 
+    min_samples = int(total.min())
+    report_k_values = get_report_k_values(min_samples)
     pass_at_k = {
         f"pass@{k}": estimate_pass_at_k(total, base_correct, k).mean()
-        for k in [1, 10, 100]
+        for k in report_k_values
         if total.min() >= k
     }
     cprint(f"{dataset} (base tests)", "red")
@@ -558,7 +572,7 @@ def evaluate(
         cprint(f"{dataset}+ (base + extra tests)", "green")
         pass_at_k = {
             f"pass@{k}": estimate_pass_at_k(total, np.array(new_correct), k).mean()
-            for k in [1, 10, 100]
+            for k in report_k_values
             if (total >= k).all()
         }
         for k, v in pass_at_k.items():

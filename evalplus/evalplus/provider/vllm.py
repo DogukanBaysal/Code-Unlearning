@@ -70,7 +70,7 @@ class VllmDecoder(DecoderBase):
             SamplingParams(
                 temperature=self.temperature,
                 max_tokens=self.max_new_tokens,
-                top_p=0.95 if do_sample else 1.0,
+                top_p=self.top_p if do_sample else 1.0,
                 stop=self.eos,
             ),
             use_tqdm=False,
@@ -91,8 +91,8 @@ class VllmDecoder(DecoderBase):
             SamplingParams(
                 temperature=self.temperature,
                 max_tokens=self.max_new_tokens,
-                n=min(self.batch_size, num_samples),
-                top_p=0.95 if do_sample else 1.0,
+                n=num_samples,
+                top_p=self.top_p if do_sample else 1.0,
                 stop=self.eos,
             ),
             use_tqdm=False,

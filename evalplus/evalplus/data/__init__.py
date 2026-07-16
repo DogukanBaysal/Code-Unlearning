@@ -16,7 +16,11 @@ from evalplus.data.custom import (
 from evalplus.data.combined import (
     COMBINED_EVAL_COMPONENTS,
     COMBINED_EVAL_DATASET,
+    COMBINED_EVAL_DATASETS,
+    FORGET_UTILITY_EVAL_COMPONENTS,
+    FORGET_UTILITY_EVAL_DATASET,
     get_combined_eval,
+    get_combined_eval_components,
     get_combined_eval_datasets,
     get_combined_eval_hash,
     is_combined_eval_dataset,
