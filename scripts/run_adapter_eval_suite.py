@@ -211,7 +211,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--evalplus-bs",
         type=int,
         default=128,
-        help="EvalPlus generation batch size.",
+        help="Number of EvalPlus problems generated together.",
+    )
+    parser.add_argument(
+        "--evalplus-pass-k",
+        type=int,
+        default=1,
+        help=(
+            "Number of sampled completions per EvalPlus problem. EvalPlus reports "
+            "pass@1, pass@ceil(k/2), and pass@k."
+        ),
     )
     parser.add_argument(
         "--evalplus-dataset",
@@ -447,6 +456,10 @@ def main() -> int:
         parser.error("--pass-k must be greater than 0")
     if args.suffix_bs <= 0:
         parser.error("--suffix-bs must be greater than 0")
+    if args.evalplus_bs <= 0:
+        parser.error("--evalplus-bs must be greater than 0")
+    if args.evalplus_pass_k <= 0:
+        parser.error("--evalplus-pass-k must be greater than 0")
     if args.temperature <= 0:
         parser.error("--temperature must be greater than 0")
     if not 0 < args.top_p <= 1:
@@ -556,8 +569,11 @@ def main() -> int:
                     return return_code
 
             if not args.skip_evalplus:
+                evalplus_result_dir = evalplus_root / args.evalplus_dataset
+                if args.evalplus_pass_k > 1:
+                    evalplus_result_dir /= f"pass-{args.evalplus_pass_k}"
                 evalplus_result_path = (
-                    evalplus_root / args.evalplus_dataset / f"{run_slug}.eval_results.json"
+                    evalplus_result_dir / f"{run_slug}.eval_results.json"
                 )
                 evalplus_result_path.parent.mkdir(parents=True, exist_ok=True)
                 evalplus_cmd = [
@@ -574,7 +590,6 @@ def main() -> int:
                     args.evalplus_dataset,
                     "--backend",
                     args.backend,
-                    "--greedy",
                     "--defer-sanitize",
                     "--bs",
                     str(args.evalplus_bs),
@@ -586,6 +601,19 @@ def main() -> int:
                     "--dtype",
                     args.dtype,
                 ]
+                if args.evalplus_pass_k == 1:
+                    evalplus_cmd.append("--greedy")
+                else:
+                    evalplus_cmd.extend(
+                        [
+                            "--n-samples",
+                            str(args.evalplus_pass_k),
+                            "--temperature",
+                            str(args.temperature),
+                            "--top-p",
+                            str(args.top_p),
+                        ]
+                    )
                 if args.trust_remote_code:
                     evalplus_cmd.append("--trust-remote-code")
                 evalplus_cmd.extend(extra_evalplus_args)

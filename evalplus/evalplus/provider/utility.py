@@ -18,6 +18,7 @@ def extra_eos_for_direct_completion(dataset) -> List[str]:
         "forgeteval",
         "utilityeval",
         "humaneval-forget-utility",
+        "forget-utility",
     ]:
         return ["\ndef ", "\nclass ", "\nimport ", "\nfrom ", "\nassert "]
     elif dataset.lower() == "mbpp":
