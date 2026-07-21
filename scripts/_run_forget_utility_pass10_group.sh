@@ -28,6 +28,20 @@ CHECKPOINTS="${CHECKPOINTS:-}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
 DRY_RUN="${DRY_RUN:-0}"
 
+if [ -n "${PYTHON_BIN:-}" ]; then
+    if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+        echo "Configured PYTHON_BIN was not found: ${PYTHON_BIN}" >&2
+        exit 127
+    fi
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+else
+    echo "Python was not found. Activate the project environment or set PYTHON_BIN." >&2
+    exit 127
+fi
+
 case "${EVAL_GROUP}" in
     initial-secret)
         DEFAULT_OUTPUT_ROOT="${REPO_ROOT}/Results/initial_secret_forget_utility_pass10"
@@ -156,7 +170,7 @@ resolve_checkpoints() {
         return 0
     fi
 
-    python scripts/run_adapter_eval_suite.py \
+    "${PYTHON_BIN}" scripts/run_adapter_eval_suite.py \
         --model "${base_model}" \
         --peft-names "${peft_name}" \
         --discover-checkpoints \
@@ -299,7 +313,7 @@ run_eval_job() {
         "CUDA_VISIBLE_DEVICES=${gpu_id}"
         "PYTHONPATH=${EVALPLUS_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
         "EVALPLUS_TIMEOUT_PER_TASK=${EVALPLUS_TIMEOUT_PER_TASK}"
-        python -m evalplus.evaluate
+        "${PYTHON_BIN}" -m evalplus.evaluate
         --model "${base_model}"
         --peft-name "${peft_name}"
         --peft-subfolder "${checkpoint}"
@@ -325,7 +339,7 @@ run_eval_job() {
     fi
 
     local filter_cmd=(
-        python "${EVALPLUS_DIR}/tools/filter_baseline_failed_results.py"
+        "${PYTHON_BIN}" "${EVALPLUS_DIR}/tools/filter_baseline_failed_results.py"
         "${result_path}"
         --filter-csv "${BASELINE_FILTER_CSV}"
         --output "${filtered_result_path}"
@@ -336,7 +350,7 @@ run_eval_job() {
         "CUDA_VISIBLE_DEVICES=${gpu_id}"
         "PYTHONPATH=${EVALPLUS_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
         "EVALPLUS_TIMEOUT_PER_TASK=${EVALPLUS_TIMEOUT_PER_TASK}"
-        python -m evalplus.evaluate
+        "${PYTHON_BIN}" -m evalplus.evaluate
         --model "${base_model}"
         --peft-name "${peft_name}"
         --peft-subfolder "${checkpoint}"
