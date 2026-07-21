@@ -17,7 +17,8 @@ PASS_K="${PASS_K:-10}"
 TEMPERATURE="${TEMPERATURE:-0.8}"
 TOP_P="${TOP_P:-0.95}"
 EVALPLUS_BS="${EVALPLUS_BS:-25}"
-EVALPLUS_DATASET="${EVALPLUS_DATASET:-humaneval-forget-utility}"
+EVALPLUS_DATASET="${EVALPLUS_DATASET:-forget-utility}"
+HUMANEVAL_DATASET="${HUMANEVAL_DATASET:-humaneval}"
 EVALPLUS_PARALLEL="${EVALPLUS_PARALLEL:-4}"
 EVALPLUS_TIMEOUT_PER_TASK="${EVALPLUS_TIMEOUT_PER_TASK:-30}"
 BASELINE_FILTER_CSV="${BASELINE_FILTER_CSV:-${EVALPLUS_DIR}/evalplus/baseline_failed_test_ids.csv}"
@@ -269,15 +270,19 @@ run_eval_job() {
     fi
     local result_path="${result_dir}/${run_slug}.eval_results.json"
     local filtered_result_path="${result_dir}/${run_slug}.filtered.eval_results.json"
+    local humaneval_result_dir="${result_dir}"
+    local humaneval_result_path="${humaneval_result_dir}/${run_slug}.humaneval.eval_results.json"
 
     if [ "${SKIP_EXISTING}" = "1" ] && \
-        [ -s "${result_path}" ] && [ -s "${filtered_result_path}" ]; then
+        [ -s "${result_path}" ] && [ -s "${filtered_result_path}" ] && \
+        [ -s "${humaneval_result_path}" ]; then
         echo
         echo "GPU ${gpu_id}: SKIPPED complete destination"
         echo "GPU ${gpu_id}: setup=${setup}, model=${model_key}, method=${method}, epoch=${epoch_index}"
         echo "GPU ${gpu_id}: checkpoint=${checkpoint}"
         echo "GPU ${gpu_id}: result=${result_path}"
         echo "GPU ${gpu_id}: filtered_result=${filtered_result_path}"
+        echo "GPU ${gpu_id}: humaneval_result=${humaneval_result_path}"
         return 0
     fi
 
@@ -287,6 +292,7 @@ run_eval_job() {
     echo "GPU ${gpu_id}: adapter=${peft_name}"
     echo "GPU ${gpu_id}: result=${result_path}"
     echo "GPU ${gpu_id}: filtered_result=${filtered_result_path}"
+    echo "GPU ${gpu_id}: humaneval_result=${humaneval_result_path}"
 
     local eval_cmd=(
         env
@@ -325,19 +331,64 @@ run_eval_job() {
         --output "${filtered_result_path}"
     )
 
+    local humaneval_cmd=(
+        env
+        "CUDA_VISIBLE_DEVICES=${gpu_id}"
+        "PYTHONPATH=${EVALPLUS_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+        "EVALPLUS_TIMEOUT_PER_TASK=${EVALPLUS_TIMEOUT_PER_TASK}"
+        python -m evalplus.evaluate
+        --model "${base_model}"
+        --peft-name "${peft_name}"
+        --peft-subfolder "${checkpoint}"
+        --dataset "${HUMANEVAL_DATASET}"
+        --backend "${BACKEND}"
+        --defer-sanitize
+        --bs "${EVALPLUS_BS}"
+        --parallel "${EVALPLUS_PARALLEL}"
+        --force-base-prompt
+        --root "${evalplus_root}/${EVALPLUS_DATASET}"
+        --output-file "${humaneval_result_path}"
+        --dtype "${DTYPE}"
+    )
+    if [ "${PASS_K}" -eq 1 ]; then
+        humaneval_cmd+=(--greedy)
+    else
+        humaneval_cmd+=(
+            --n-samples "${PASS_K}"
+            --temperature "${TEMPERATURE}"
+            --top-p "${TOP_P}"
+        )
+    fi
+
     printf '$'
     printf ' %q' "${eval_cmd[@]}" "$@"
     echo
     printf '$'
     printf ' %q' "${filter_cmd[@]}"
     echo
+    printf '$'
+    printf ' %q' "${humaneval_cmd[@]}" "$@"
+    echo
     if [ "${DRY_RUN}" = "1" ]; then
         return 0
     fi
 
-    mkdir -p "${result_dir}"
-    "${eval_cmd[@]}" "$@" || return $?
-    "${filter_cmd[@]}"
+    mkdir -p "${result_dir}" "${humaneval_result_dir}"
+    if [ "${SKIP_EXISTING}" != "1" ] || [ ! -s "${result_path}" ]; then
+        "${eval_cmd[@]}" "$@" || return $?
+    else
+        echo "GPU ${gpu_id}: SKIPPED existing ForgetEval + UtilityEval result"
+    fi
+    if [ "${SKIP_EXISTING}" != "1" ] || [ ! -s "${filtered_result_path}" ]; then
+        "${filter_cmd[@]}" || return $?
+    else
+        echo "GPU ${gpu_id}: SKIPPED existing filtered ForgetEval + UtilityEval result"
+    fi
+    if [ "${SKIP_EXISTING}" != "1" ] || [ ! -s "${humaneval_result_path}" ]; then
+        "${humaneval_cmd[@]}" "$@"
+    else
+        echo "GPU ${gpu_id}: SKIPPED existing HumanEval result"
+    fi
 }
 
 launch_job() {
@@ -378,6 +429,7 @@ echo "Evaluation group: ${EVAL_GROUP}"
 echo "Detected ${#gpu_ids[@]} GPU worker(s): ${gpu_ids[*]}"
 echo "Queued ${#jobs[@]} checkpoint jobs; the next pending checkpoint goes to the first free GPU."
 echo "EvalPlus: HumanEval + ForgetEval + UtilityEval, pass@${PASS_K}, batch_size=${EVALPLUS_BS}"
+echo "Result directory: ${EVALPLUS_DATASET} (HumanEval uses a .humaneval filename suffix)"
 echo "Testing: parallelism=${EVALPLUS_PARALLEL}, per-solution timeout=${EVALPLUS_TIMEOUT_PER_TASK}s"
 echo "Sampling: temperature=${TEMPERATURE}, top_p=${TOP_P}"
 echo "Skip complete destinations: ${SKIP_EXISTING}"
