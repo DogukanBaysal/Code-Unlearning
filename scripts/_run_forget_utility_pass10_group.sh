@@ -19,7 +19,7 @@ TOP_P="${TOP_P:-0.95}"
 EVALPLUS_BS="${EVALPLUS_BS:-25}"
 EVALPLUS_DATASET="${EVALPLUS_DATASET:-forget-utility}"
 HUMANEVAL_DATASET="${HUMANEVAL_DATASET:-humaneval}"
-EVALPLUS_PARALLEL="${EVALPLUS_PARALLEL:-4}"
+EVALPLUS_PARALLEL="${EVALPLUS_PARALLEL:-}"
 EVALPLUS_TIMEOUT_PER_TASK="${EVALPLUS_TIMEOUT_PER_TASK:-30}"
 BASELINE_FILTER_CSV="${BASELINE_FILTER_CSV:-${EVALPLUS_DIR}/evalplus/baseline_failed_test_ids.csv}"
 BACKEND="${BACKEND:-hf}"
@@ -70,7 +70,8 @@ if ! [[ "${EVALPLUS_BS}" =~ ^[1-9][0-9]*$ ]]; then
     echo "EVALPLUS_BS must be a positive integer: ${EVALPLUS_BS}" >&2
     exit 2
 fi
-if ! [[ "${EVALPLUS_PARALLEL}" =~ ^[1-9][0-9]*$ ]]; then
+if [ -n "${EVALPLUS_PARALLEL}" ] && \
+    ! [[ "${EVALPLUS_PARALLEL}" =~ ^[1-9][0-9]*$ ]]; then
     echo "EVALPLUS_PARALLEL must be a positive integer: ${EVALPLUS_PARALLEL}" >&2
     exit 2
 fi
@@ -321,7 +322,6 @@ run_eval_job() {
         --backend "${BACKEND}"
         --defer-sanitize
         --bs "${EVALPLUS_BS}"
-        --parallel "${EVALPLUS_PARALLEL}"
         --force-base-prompt
         --root "${evalplus_root}"
         --output-file "${result_path}"
@@ -336,6 +336,9 @@ run_eval_job() {
             --temperature "${TEMPERATURE}"
             --top-p "${TOP_P}"
         )
+    fi
+    if [ -n "${EVALPLUS_PARALLEL}" ]; then
+        eval_cmd+=(--parallel "${EVALPLUS_PARALLEL}")
     fi
 
     local filter_cmd=(
@@ -358,7 +361,6 @@ run_eval_job() {
         --backend "${BACKEND}"
         --defer-sanitize
         --bs "${EVALPLUS_BS}"
-        --parallel "${EVALPLUS_PARALLEL}"
         --force-base-prompt
         --root "${evalplus_root}/${EVALPLUS_DATASET}"
         --output-file "${humaneval_result_path}"
@@ -372,6 +374,9 @@ run_eval_job() {
             --temperature "${TEMPERATURE}"
             --top-p "${TOP_P}"
         )
+    fi
+    if [ -n "${EVALPLUS_PARALLEL}" ]; then
+        humaneval_cmd+=(--parallel "${EVALPLUS_PARALLEL}")
     fi
 
     printf '$'
@@ -444,7 +449,11 @@ echo "Detected ${#gpu_ids[@]} GPU worker(s): ${gpu_ids[*]}"
 echo "Queued ${#jobs[@]} checkpoint jobs; the next pending checkpoint goes to the first free GPU."
 echo "EvalPlus: HumanEval + ForgetEval + UtilityEval, pass@${PASS_K}, batch_size=${EVALPLUS_BS}"
 echo "Result directory: ${EVALPLUS_DATASET} (HumanEval uses a .humaneval filename suffix)"
-echo "Testing: parallelism=${EVALPLUS_PARALLEL}, per-solution timeout=${EVALPLUS_TIMEOUT_PER_TASK}s"
+if [ -n "${EVALPLUS_PARALLEL}" ]; then
+    echo "Testing: parallelism=${EVALPLUS_PARALLEL}, per-solution timeout=${EVALPLUS_TIMEOUT_PER_TASK}s"
+else
+    echo "Testing: parallelism=EvalPlus default, per-solution timeout=${EVALPLUS_TIMEOUT_PER_TASK}s"
+fi
 echo "Sampling: temperature=${TEMPERATURE}, top_p=${TOP_P}"
 echo "Skip complete destinations: ${SKIP_EXISTING}"
 
