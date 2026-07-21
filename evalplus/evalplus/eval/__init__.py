@@ -322,7 +322,8 @@ def untrusted_check(
     gt_time_limit_factor: float = DEFAULT_GT_TIME_LIMIT_FACTOR,
 ) -> Tuple[str, np.ndarray]:
     time_limits = [max(min_time_limit, gt_time_limit_factor * t) for t in ref_time]
-    timeout = min(os.getenv("EVALPLUS_TIMEOUT_PER_TASK", 60), sum(time_limits)) + 1
+    timeout_per_task = float(os.getenv("EVALPLUS_TIMEOUT_PER_TASK", 60))
+    timeout = min(timeout_per_task, sum(time_limits)) + 1
     if not fast_check:
         timeout += 1  # extra time for data collection
 
