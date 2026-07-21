@@ -478,7 +478,9 @@ def evaluate(
                     warn("No samples had finished testing in the last 20s")
                     warn(f"{len(remainings)} samples to be tested: {remainings}")
 
-            threading.Thread(target=stucking_checker).start()
+            # This thread only reports a lack of progress. It must not keep the
+            # evaluator process alive if the main evaluation path exits.
+            threading.Thread(target=stucking_checker, daemon=True).start()
 
             for future in tqdm(as_completed(futures), total=n_samples):
                 result = future.result()

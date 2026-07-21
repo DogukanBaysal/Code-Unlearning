@@ -18,6 +18,9 @@ TEMPERATURE="${TEMPERATURE:-0.8}"
 TOP_P="${TOP_P:-0.95}"
 EVALPLUS_BS="${EVALPLUS_BS:-25}"
 EVALPLUS_DATASET="${EVALPLUS_DATASET:-forget-utility}"
+EVALPLUS_PARALLEL="${EVALPLUS_PARALLEL:-4}"
+EVALPLUS_TIMEOUT_PER_TASK="${EVALPLUS_TIMEOUT_PER_TASK:-30}"
+BASELINE_FILTER_CSV="${BASELINE_FILTER_CSV:-${EVALPLUS_DIR}/evalplus/baseline_failed_test_ids.csv}"
 BACKEND="${BACKEND:-hf}"
 DTYPE="${DTYPE:-bfloat16}"
 CHECKPOINTS="${CHECKPOINTS:-}"
@@ -50,6 +53,14 @@ if ! [[ "${PASS_K}" =~ ^[1-9][0-9]*$ ]]; then
 fi
 if ! [[ "${EVALPLUS_BS}" =~ ^[1-9][0-9]*$ ]]; then
     echo "EVALPLUS_BS must be a positive integer: ${EVALPLUS_BS}" >&2
+    exit 2
+fi
+if ! [[ "${EVALPLUS_PARALLEL}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "EVALPLUS_PARALLEL must be a positive integer: ${EVALPLUS_PARALLEL}" >&2
+    exit 2
+fi
+if ! [[ "${EVALPLUS_TIMEOUT_PER_TASK}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "EVALPLUS_TIMEOUT_PER_TASK must be a positive integer: ${EVALPLUS_TIMEOUT_PER_TASK}" >&2
     exit 2
 fi
 
@@ -257,13 +268,16 @@ run_eval_job() {
         result_dir="${result_dir}/pass-${PASS_K}"
     fi
     local result_path="${result_dir}/${run_slug}.eval_results.json"
+    local filtered_result_path="${result_dir}/${run_slug}.filtered.eval_results.json"
 
-    if [ "${SKIP_EXISTING}" = "1" ] && [ -s "${result_path}" ]; then
+    if [ "${SKIP_EXISTING}" = "1" ] && \
+        [ -s "${result_path}" ] && [ -s "${filtered_result_path}" ]; then
         echo
         echo "GPU ${gpu_id}: SKIPPED complete destination"
         echo "GPU ${gpu_id}: setup=${setup}, model=${model_key}, method=${method}, epoch=${epoch_index}"
         echo "GPU ${gpu_id}: checkpoint=${checkpoint}"
         echo "GPU ${gpu_id}: result=${result_path}"
+        echo "GPU ${gpu_id}: filtered_result=${filtered_result_path}"
         return 0
     fi
 
@@ -272,11 +286,13 @@ run_eval_job() {
     echo "GPU ${gpu_id}: checkpoint=${checkpoint}"
     echo "GPU ${gpu_id}: adapter=${peft_name}"
     echo "GPU ${gpu_id}: result=${result_path}"
+    echo "GPU ${gpu_id}: filtered_result=${filtered_result_path}"
 
     local eval_cmd=(
         env
         "CUDA_VISIBLE_DEVICES=${gpu_id}"
         "PYTHONPATH=${EVALPLUS_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+        "EVALPLUS_TIMEOUT_PER_TASK=${EVALPLUS_TIMEOUT_PER_TASK}"
         python -m evalplus.evaluate
         --model "${base_model}"
         --peft-name "${peft_name}"
@@ -285,6 +301,7 @@ run_eval_job() {
         --backend "${BACKEND}"
         --defer-sanitize
         --bs "${EVALPLUS_BS}"
+        --parallel "${EVALPLUS_PARALLEL}"
         --force-base-prompt
         --root "${evalplus_root}"
         --output-file "${result_path}"
@@ -301,15 +318,26 @@ run_eval_job() {
         )
     fi
 
+    local filter_cmd=(
+        python "${EVALPLUS_DIR}/tools/filter_baseline_failed_results.py"
+        "${result_path}"
+        --filter-csv "${BASELINE_FILTER_CSV}"
+        --output "${filtered_result_path}"
+    )
+
     printf '$'
     printf ' %q' "${eval_cmd[@]}" "$@"
+    echo
+    printf '$'
+    printf ' %q' "${filter_cmd[@]}"
     echo
     if [ "${DRY_RUN}" = "1" ]; then
         return 0
     fi
 
     mkdir -p "${result_dir}"
-    "${eval_cmd[@]}" "$@"
+    "${eval_cmd[@]}" "$@" || return $?
+    "${filter_cmd[@]}"
 }
 
 launch_job() {
@@ -350,6 +378,7 @@ echo "Evaluation group: ${EVAL_GROUP}"
 echo "Detected ${#gpu_ids[@]} GPU worker(s): ${gpu_ids[*]}"
 echo "Queued ${#jobs[@]} checkpoint jobs; the next pending checkpoint goes to the first free GPU."
 echo "EvalPlus: ForgetEval + UtilityEval, pass@${PASS_K}, batch_size=${EVALPLUS_BS}"
+echo "Testing: parallelism=${EVALPLUS_PARALLEL}, per-solution timeout=${EVALPLUS_TIMEOUT_PER_TASK}s"
 echo "Sampling: temperature=${TEMPERATURE}, top_p=${TOP_P}"
 echo "Skip complete destinations: ${SKIP_EXISTING}"
 
