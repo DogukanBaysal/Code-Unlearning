@@ -23,8 +23,12 @@ def make_records(correct_count: int, total: int = 10):
 
 def test_combined_filter_recomputes_metrics_and_makes_baseline_pass_at_10_one():
     result = {
-        "dataset": "forget-utility",
+        "dataset": "humaneval-forget-utility",
         "eval": {
+            "humaneval": {
+                "eval": {"HumanEval/0": make_records(3)},
+                "pass_at_k": {"base": {"pass@10": 1.0}},
+            },
             "forgeteval": {
                 "eval": {
                     "ForgetEval1": make_records(0),
@@ -40,7 +44,9 @@ def test_combined_filter_recomputes_metrics_and_makes_baseline_pass_at_10_one():
                 "pass_at_k": {"base": {"pass@10": 0.5}},
             },
         },
-        "pass_at_k": {},
+        "pass_at_k": {
+            "humaneval": {"base": {"pass@10": 1.0}},
+        },
     }
     excluded = {
         "forgeteval": {"ForgetEval1"},
@@ -55,6 +61,8 @@ def test_combined_filter_recomputes_metrics_and_makes_baseline_pass_at_10_one():
     }
     assert filtered["pass_at_k"]["forgeteval"]["base"]["pass@10"] == 1.0
     assert filtered["pass_at_k"]["utilityeval"]["base"]["pass@10"] == 1.0
+    assert filtered["eval"]["humaneval"] == result["eval"]["humaneval"]
+    assert filtered["pass_at_k"]["humaneval"] == result["pass_at_k"]["humaneval"]
     assert filtered["baseline_filter"]["forgeteval"]["excluded_task_count"] == 1
     assert filtered["baseline_filter"]["utilityeval"]["retained_task_count"] == 1
 
