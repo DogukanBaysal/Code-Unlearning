@@ -22,6 +22,7 @@ HUMANEVAL_DATASET="${HUMANEVAL_DATASET:-humaneval}"
 EVALPLUS_PARALLEL="${EVALPLUS_PARALLEL:-}"
 EVALPLUS_TIMEOUT_PER_TASK="${EVALPLUS_TIMEOUT_PER_TASK:-30}"
 EVALPLUS_SANITIZE_WORKERS="${EVALPLUS_SANITIZE_WORKERS:-4}"
+EVALPLUS_GENERATE_ONLY="${EVALPLUS_GENERATE_ONLY:-0}"
 BASELINE_FILTER_CSV="${BASELINE_FILTER_CSV:-${EVALPLUS_DIR}/evalplus/baseline_failed_test_ids.csv}"
 BACKEND="${BACKEND:-hf}"
 DTYPE="${DTYPE:-bfloat16}"
@@ -82,6 +83,10 @@ if ! [[ "${EVALPLUS_TIMEOUT_PER_TASK}" =~ ^[1-9][0-9]*$ ]]; then
 fi
 if ! [[ "${EVALPLUS_SANITIZE_WORKERS}" =~ ^[1-9][0-9]*$ ]]; then
     echo "EVALPLUS_SANITIZE_WORKERS must be a positive integer: ${EVALPLUS_SANITIZE_WORKERS}" >&2
+    exit 2
+fi
+if [ "${EVALPLUS_GENERATE_ONLY}" != "0" ] && [ "${EVALPLUS_GENERATE_ONLY}" != "1" ]; then
+    echo "EVALPLUS_GENERATE_ONLY must be 0 or 1: ${EVALPLUS_GENERATE_ONLY}" >&2
     exit 2
 fi
 
@@ -314,6 +319,72 @@ run_eval_job() {
     echo "GPU ${gpu_id}: filtered_result=${filtered_result_path}"
     echo "GPU ${gpu_id}: humaneval_result=${humaneval_result_path}"
 
+    if [ "${EVALPLUS_GENERATE_ONLY}" = "1" ]; then
+        local generate_cmd=(
+            env
+            "CUDA_VISIBLE_DEVICES=${gpu_id}"
+            "PYTHONPATH=${EVALPLUS_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+            "${PYTHON_BIN}" -m evalplus.codegen
+            --model "${base_model}"
+            --peft-name "${peft_name}"
+            --peft-subfolder "${checkpoint}"
+            --dataset "${EVALPLUS_DATASET}"
+            --backend "${BACKEND}"
+            --defer-sanitize
+            --generate-only
+            --bs "${EVALPLUS_BS}"
+            --force-base-prompt
+            --root "${evalplus_root}"
+            --dtype "${DTYPE}"
+        )
+        local humaneval_generate_cmd=(
+            env
+            "CUDA_VISIBLE_DEVICES=${gpu_id}"
+            "PYTHONPATH=${EVALPLUS_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+            "${PYTHON_BIN}" -m evalplus.codegen
+            --model "${base_model}"
+            --peft-name "${peft_name}"
+            --peft-subfolder "${checkpoint}"
+            --dataset "${HUMANEVAL_DATASET}"
+            --backend "${BACKEND}"
+            --defer-sanitize
+            --generate-only
+            --bs "${EVALPLUS_BS}"
+            --force-base-prompt
+            --root "${evalplus_root}/${EVALPLUS_DATASET}"
+            --dtype "${DTYPE}"
+        )
+        if [ "${PASS_K}" -eq 1 ]; then
+            generate_cmd+=(--greedy)
+            humaneval_generate_cmd+=(--greedy)
+        else
+            generate_cmd+=(
+                --n-samples "${PASS_K}"
+                --temperature "${TEMPERATURE}"
+                --top-p "${TOP_P}"
+            )
+            humaneval_generate_cmd+=(
+                --n-samples "${PASS_K}"
+                --temperature "${TEMPERATURE}"
+                --top-p "${TOP_P}"
+            )
+        fi
+
+        printf '$'
+        printf ' %q' "${generate_cmd[@]}" "$@"
+        echo
+        printf '$'
+        printf ' %q' "${humaneval_generate_cmd[@]}" "$@"
+        echo
+        if [ "${DRY_RUN}" = "1" ]; then
+            return 0
+        fi
+
+        "${generate_cmd[@]}" "$@" || return $?
+        "${humaneval_generate_cmd[@]}" "$@"
+        return $?
+    fi
+
     local eval_cmd=(
         env
         "CUDA_VISIBLE_DEVICES=${gpu_id}"
@@ -455,6 +526,11 @@ echo "Evaluation group: ${EVAL_GROUP}"
 echo "Detected ${#gpu_ids[@]} GPU worker(s): ${gpu_ids[*]}"
 echo "Queued ${#jobs[@]} checkpoint jobs; the next pending checkpoint goes to the first free GPU."
 echo "EvalPlus: HumanEval + ForgetEval + UtilityEval, pass@${PASS_K}, batch_size=${EVALPLUS_BS}"
+if [ "${EVALPLUS_GENERATE_ONLY}" = "1" ]; then
+    echo "Mode: generation only (raw JSONL; no sanitization or scoring)"
+else
+    echo "Mode: generation + sanitization + scoring"
+fi
 echo "Result directory: ${EVALPLUS_DATASET} (HumanEval uses a .humaneval filename suffix)"
 if [ -n "${EVALPLUS_PARALLEL}" ]; then
     echo "Testing: parallelism=${EVALPLUS_PARALLEL}, per-solution timeout=${EVALPLUS_TIMEOUT_PER_TASK}s, sanitizer_workers=${EVALPLUS_SANITIZE_WORKERS}"
