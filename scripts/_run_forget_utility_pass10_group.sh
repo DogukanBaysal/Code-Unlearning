@@ -21,6 +21,7 @@ EVALPLUS_DATASET="${EVALPLUS_DATASET:-forget-utility}"
 HUMANEVAL_DATASET="${HUMANEVAL_DATASET:-humaneval}"
 EVALPLUS_PARALLEL="${EVALPLUS_PARALLEL:-}"
 EVALPLUS_TIMEOUT_PER_TASK="${EVALPLUS_TIMEOUT_PER_TASK:-30}"
+EVALPLUS_SANITIZE_WORKERS="${EVALPLUS_SANITIZE_WORKERS:-4}"
 BASELINE_FILTER_CSV="${BASELINE_FILTER_CSV:-${EVALPLUS_DIR}/evalplus/baseline_failed_test_ids.csv}"
 BACKEND="${BACKEND:-hf}"
 DTYPE="${DTYPE:-bfloat16}"
@@ -77,6 +78,10 @@ if [ -n "${EVALPLUS_PARALLEL}" ] && \
 fi
 if ! [[ "${EVALPLUS_TIMEOUT_PER_TASK}" =~ ^[1-9][0-9]*$ ]]; then
     echo "EVALPLUS_TIMEOUT_PER_TASK must be a positive integer: ${EVALPLUS_TIMEOUT_PER_TASK}" >&2
+    exit 2
+fi
+if ! [[ "${EVALPLUS_SANITIZE_WORKERS}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "EVALPLUS_SANITIZE_WORKERS must be a positive integer: ${EVALPLUS_SANITIZE_WORKERS}" >&2
     exit 2
 fi
 
@@ -314,6 +319,7 @@ run_eval_job() {
         "CUDA_VISIBLE_DEVICES=${gpu_id}"
         "PYTHONPATH=${EVALPLUS_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
         "EVALPLUS_TIMEOUT_PER_TASK=${EVALPLUS_TIMEOUT_PER_TASK}"
+        "EVALPLUS_SANITIZE_WORKERS=${EVALPLUS_SANITIZE_WORKERS}"
         "${PYTHON_BIN}" -m evalplus.evaluate
         --model "${base_model}"
         --peft-name "${peft_name}"
@@ -353,6 +359,7 @@ run_eval_job() {
         "CUDA_VISIBLE_DEVICES=${gpu_id}"
         "PYTHONPATH=${EVALPLUS_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
         "EVALPLUS_TIMEOUT_PER_TASK=${EVALPLUS_TIMEOUT_PER_TASK}"
+        "EVALPLUS_SANITIZE_WORKERS=${EVALPLUS_SANITIZE_WORKERS}"
         "${PYTHON_BIN}" -m evalplus.evaluate
         --model "${base_model}"
         --peft-name "${peft_name}"
@@ -450,9 +457,9 @@ echo "Queued ${#jobs[@]} checkpoint jobs; the next pending checkpoint goes to th
 echo "EvalPlus: HumanEval + ForgetEval + UtilityEval, pass@${PASS_K}, batch_size=${EVALPLUS_BS}"
 echo "Result directory: ${EVALPLUS_DATASET} (HumanEval uses a .humaneval filename suffix)"
 if [ -n "${EVALPLUS_PARALLEL}" ]; then
-    echo "Testing: parallelism=${EVALPLUS_PARALLEL}, per-solution timeout=${EVALPLUS_TIMEOUT_PER_TASK}s"
+    echo "Testing: parallelism=${EVALPLUS_PARALLEL}, per-solution timeout=${EVALPLUS_TIMEOUT_PER_TASK}s, sanitizer_workers=${EVALPLUS_SANITIZE_WORKERS}"
 else
-    echo "Testing: parallelism=EvalPlus default, per-solution timeout=${EVALPLUS_TIMEOUT_PER_TASK}s"
+    echo "Testing: parallelism=EvalPlus default, per-solution timeout=${EVALPLUS_TIMEOUT_PER_TASK}s, sanitizer_workers=${EVALPLUS_SANITIZE_WORKERS}"
 fi
 echo "Sampling: temperature=${TEMPERATURE}, top_p=${TOP_P}"
 echo "Skip complete destinations: ${SKIP_EXISTING}"
