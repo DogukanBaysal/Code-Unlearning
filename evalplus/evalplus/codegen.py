@@ -247,6 +247,7 @@ def run_codegen(
     gptqmodel_backend: str = "auto",  # For GPTQModel
     gguf_file: Optional[str] = None,
     defer_sanitize: bool = False,
+    generate_only: bool = False,
     **kwargs,
 ):
     dataset = dataset.lower()
@@ -304,12 +305,14 @@ def run_codegen(
     else:
         raise ValueError(f"Invalid dataset {dataset}")
 
-    generation_path = get_raw_target_path(target_path) if defer_sanitize else target_path
+    raw_generation = defer_sanitize or generate_only
+    generation_path = get_raw_target_path(target_path) if raw_generation else target_path
+    completion_path = generation_path if generate_only else target_path
 
     all_tasks_complete = False
-    if jsonl_fmt and os.path.isfile(target_path):
+    if jsonl_fmt and os.path.isfile(completion_path):
         task_counts = {}
-        with open(target_path, "r") as f:
+        with open(completion_path, "r") as f:
             for line in f:
                 if not line.strip():
                     continue
@@ -323,11 +326,12 @@ def run_codegen(
             )
 
     if all_tasks_complete:
-        print("All samples are already cached. Skipping codegen.")
-        return target_path
+        cache_label = "raw samples" if generate_only else "samples"
+        print(f"All {cache_label} are already cached. Skipping codegen.")
+        return completion_path
 
     generation_complete = False
-    if defer_sanitize and jsonl_fmt and os.path.isfile(generation_path):
+    if raw_generation and jsonl_fmt and os.path.isfile(generation_path):
         task_counts = {}
         with open(generation_path, "r") as f:
             for line in f:
@@ -423,7 +427,7 @@ def run_codegen(
             n_samples=n_samples,
             resume=resume,
             id_range=id_range,
-            sanitize_output=not defer_sanitize,
+            sanitize_output=not raw_generation,
         )
 
         # force shutdown the model runner
@@ -431,7 +435,7 @@ def run_codegen(
 
         gc.collect()
 
-    if defer_sanitize:
+    if defer_sanitize and not generate_only:
         sanitize_samples(
             samples=generation_path,
             target_path=target_path,
@@ -439,7 +443,7 @@ def run_codegen(
             problems=dataset_dict,
         )
 
-    return target_path
+    return generation_path if generate_only else target_path
 
 
 def main():
