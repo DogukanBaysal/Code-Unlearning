@@ -1,5 +1,6 @@
 """Post-processing LLM-generated Python code implemented using tree-sitter."""
 
+from concurrent.futures import ProcessPoolExecutor
 import os
 import pathlib
 import re
@@ -34,6 +35,7 @@ def code_extract(text: str) -> str:
     text = ansi_escape.sub("", text)
 
     lines = text.split("\n")
+
     longest_line_pair = (0, 0)
     longest_so_far = 0
 
@@ -177,6 +179,11 @@ def sanitize(code: str, entrypoint: Optional[str] = None) -> str:
     return sanitized_code
 
 
+def _sanitize_one(payload: Tuple[str, Optional[str]]) -> str:
+    code, entrypoint = payload
+    return sanitize(code=code, entrypoint=entrypoint)
+
+
 def sanitize_samples(
     samples: str,
     target_path: Optional[str] = None,
@@ -203,11 +210,7 @@ def sanitize_samples(
             target = target.parent / new_name
         target_path = str(target)
 
-    nsan = 0
-    ntotal = 0
-
-    new_solutions = []
-
+    records = []
     for solution in tqdm(load_solutions(samples)):
         task_id = solution["task_id"]
         if task_id not in dataset:
@@ -217,28 +220,52 @@ def sanitize_samples(
             continue
 
         function_name = entry_point[task_id] if task_id in entry_point else None
-        dbg_identifier = solution["_identifier"]
         if debug_task is not None and task_id != debug_task:
             continue
 
-        ntotal += 1
         if "solution" in solution:
             old_code = solution["solution"]
         else:
             assert "completion" in solution
             old_code = dataset[task_id]["prompt"] + "\n" + solution["completion"]
 
-        new_code = sanitize(code=old_code, entrypoint=function_name)
+        records.append((solution, old_code, function_name))
 
-        # if changed, print the message
-        if new_code != old_code:
-            msg = "Sanitized: " + dbg_identifier
-            if is_folder:
-                msg += " -> " + dbg_identifier.replace(samples, target_path)
-            print(msg)
-            nsan += 1
+    sanitize_workers = int(os.getenv("EVALPLUS_SANITIZE_WORKERS", "1"))
+    if sanitize_workers <= 0:
+        raise ValueError("EVALPLUS_SANITIZE_WORKERS must be greater than zero")
 
-        new_solutions.append({"task_id": task_id, "solution": new_code})
+    payloads = [(old_code, function_name) for _, old_code, function_name in records]
+    if sanitize_workers == 1:
+        sanitized_codes = map(_sanitize_one, payloads)
+    else:
+        executor = ProcessPoolExecutor(max_workers=sanitize_workers)
+        sanitized_codes = executor.map(_sanitize_one, payloads, chunksize=1)
+
+    nsan = 0
+    new_solutions = []
+    try:
+        record_outputs = zip(records, sanitized_codes)
+        for (solution, old_code, _), new_code in tqdm(
+            record_outputs,
+            total=len(records),
+            desc=f"Sanitizing ({sanitize_workers} worker(s))",
+        ):
+            task_id = solution["task_id"]
+
+            # if changed, print the message
+            if new_code != old_code:
+                dbg_identifier = solution["_identifier"]
+                msg = "Sanitized: " + dbg_identifier
+                if is_folder:
+                    msg += " -> " + dbg_identifier.replace(samples, target_path)
+                print(msg)
+                nsan += 1
+
+            new_solutions.append({"task_id": task_id, "solution": new_code})
+    finally:
+        if sanitize_workers > 1:
+            executor.shutdown()
 
     if is_folder:
         write_directory(target_path, new_solutions)
@@ -246,7 +273,7 @@ def sanitize_samples(
         write_jsonl(target_path, new_solutions)
 
     if nsan > 0:
-        print(f"Sanitized {nsan} out of {ntotal} files.")
+        print(f"Sanitized {nsan} out of {len(records)} files.")
     else:
         print(f"All files seems valid -- no files are sanitized.")
     print(f"Check the sanitized files at {target_path}")
