@@ -159,7 +159,7 @@ config = {
         },
         {
             "label": "retain",
-            "dataset_name": "dbaysal/retain-full",
+            "dataset_name": "dbaysal/retain-half",
             "dataset_split": "train",
             "prefix_column": "prefix",
             "suffix_column": "suffix",
