@@ -113,6 +113,56 @@ def _default_adapter_allow_patterns(hub_cfg):
     return allow_patterns
 
 
+def _default_full_model_allow_patterns(hub_cfg):
+    model_patterns = [
+        "config.json",
+        "generation_config.json",
+        "model.safetensors",
+        "model.safetensors.index.json",
+        "model-*.safetensors",
+        "pytorch_model.bin",
+        "pytorch_model.bin.index.json",
+        "pytorch_model-*.bin",
+        "README.md",
+        "trainer_state.json",
+        "training_args.bin",
+        "run_config.yaml",
+    ]
+
+    allow_patterns = list(model_patterns)
+    if hub_cfg.get("include_checkpoints", True):
+        allow_patterns.extend(
+            [os.path.join("checkpoint-*", pattern) for pattern in model_patterns]
+        )
+
+    if hub_cfg.get("include_tokenizer", True):
+        tokenizer_patterns = [
+            "tokenizer.json",
+            "tokenizer.model",
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+            "added_tokens.json",
+            "vocab.*",
+            "merges.txt",
+        ]
+        allow_patterns.extend(tokenizer_patterns)
+        if hub_cfg.get("include_checkpoints", True):
+            allow_patterns.extend(
+                [
+                    os.path.join("checkpoint-*", pattern)
+                    for pattern in tokenizer_patterns
+                ]
+            )
+
+    if hub_cfg.get("include_emissions", True):
+        allow_patterns.append(os.path.join("emissions", "*"))
+
+    if hub_cfg.get("include_settings", True):
+        allow_patterns.append(os.path.join(".hydra", "*"))
+
+    return allow_patterns
+
+
 def save_run_settings(cfg, trainer, trainer_args):
     if not _is_world_process_zero(trainer):
         return
@@ -122,7 +172,7 @@ def save_run_settings(cfg, trainer, trainer_args):
     OmegaConf.save(config=cfg, f=config_path, resolve=True)
 
 
-def push_adapters_to_hub(hub_cfg, trainer, trainer_args, task_name):
+def push_artifacts_to_hub(hub_cfg, trainer, trainer_args, task_name):
     if not hub_cfg or not hub_cfg.get("enabled", False):
         return
 
@@ -148,7 +198,16 @@ def push_adapters_to_hub(hub_cfg, trainer, trainer_args, task_name):
 
     allow_patterns = _to_container(hub_cfg.get("allow_patterns", None))
     if allow_patterns is None:
-        allow_patterns = _default_adapter_allow_patterns(hub_cfg)
+        artifact_type = hub_cfg.get("artifact_type", "adapter")
+        if artifact_type == "adapter":
+            allow_patterns = _default_adapter_allow_patterns(hub_cfg)
+        elif artifact_type == "full_model":
+            allow_patterns = _default_full_model_allow_patterns(hub_cfg)
+        else:
+            raise ValueError(
+                "hub_adapter.artifact_type must be adapter or full_model, got "
+                f"{artifact_type!r}."
+            )
 
     token = hub_cfg.get("token", None)
     repo_type = hub_cfg.get("repo_type", "model")
@@ -166,7 +225,7 @@ def push_adapters_to_hub(hub_cfg, trainer, trainer_args, task_name):
         folder_path=folder_path,
         path_in_repo=hub_cfg.get("path_in_repo", None),
         commit_message=hub_cfg.get(
-            "commit_message", f"Upload unlearned adapters for {task_name}"
+            "commit_message", f"Upload unlearning artifacts for {task_name}"
         ),
         commit_description=hub_cfg.get("commit_description", None),
         token=token,
@@ -178,7 +237,7 @@ def push_adapters_to_hub(hub_cfg, trainer, trainer_args, task_name):
         delete_patterns=_to_container(hub_cfg.get("delete_patterns", None)),
     )
     logger.info(
-        "Uploaded adapter artifacts from %s to Hugging Face Hub repo %s",
+        "Uploaded training artifacts from %s to Hugging Face Hub repo %s",
         folder_path,
         repo_id,
     )
@@ -245,7 +304,7 @@ def main(cfg: DictConfig):
             trainer.train()
             trainer.save_state()
             trainer.save_model(trainer_args.output_dir)
-        push_adapters_to_hub(
+        push_artifacts_to_hub(
             cfg.get("hub_adapter", None),
             trainer=trainer,
             trainer_args=trainer_args,

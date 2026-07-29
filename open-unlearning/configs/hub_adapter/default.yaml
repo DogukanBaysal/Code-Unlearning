@@ -1,5 +1,7 @@
 enabled: false
 repo_id: null
+# Controls the default upload allow-list. Use full_model after merging PEFT.
+artifact_type: adapter
 private: null
 repo_type: model
 revision: null
