@@ -8,7 +8,7 @@ UNLEARNING_EVAL_DIR="${REPO_ROOT}/UnlearningEvaluation"
 EVALPLUS_DIR="${REPO_ROOT}/evalplus"
 
 OUTPUT_ROOT="${OUTPUT_ROOT:-${REPO_ROOT}/Results/secret_ga_full_grid_search}"
-LEARNING_RATES="${LEARNING_RATES:-5e-5 1e-5 5e-6 1e-6 5e-7}"
+LEARNING_RATES="${LEARNING_RATES:-4e-5 3e-5 2e-5}"
 MODEL_KEYS="${MODEL_KEYS:-qwen2_5_coder_3b}"
 QWEN_SOURCE_REPO="${QWEN_SOURCE_REPO:-dbaysal/qwen2.5coder-3b-learned-checkpoint282-full}"
 LLAMA_SOURCE_REPO="${LLAMA_SOURCE_REPO:-dbaysal/metallama3.2-3b-learned-checkpoint282-full}"
@@ -31,6 +31,8 @@ BACKEND="${BACKEND:-hf}"
 UTILITY_PARALLEL="${UTILITY_PARALLEL:-}"
 EVALPLUS_TIMEOUT_PER_TASK="${EVALPLUS_TIMEOUT_PER_TASK:-30}"
 EVALPLUS_SANITIZE_WORKERS="${EVALPLUS_SANITIZE_WORKERS:-4}"
+AGGREGATE_FILTER_CSV="${AGGREGATE_FILTER_CSV-${UNLEARNING_EVAL_DIR}/non_exact_matches.csv}"
+BASELINE_FILTER_CSV="${BASELINE_FILTER_CSV-${EVALPLUS_DIR}/evalplus/baseline_failed_test_ids.csv}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
 CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-0}"
 DRY_RUN="${DRY_RUN:-0}"
@@ -64,6 +66,18 @@ done
 if [ "${RUN_UNLEARNING}" = "0" ] && [ "${RUN_EVALUATIONS}" = "0" ]; then
     echo "At least one of RUN_UNLEARNING or RUN_EVALUATIONS must be 1." >&2
     exit 2
+fi
+if [ "${RUN_EVALUATIONS}" = "1" ]; then
+    for filter_spec in \
+        "AGGREGATE_FILTER_CSV=${AGGREGATE_FILTER_CSV}" \
+        "BASELINE_FILTER_CSV=${BASELINE_FILTER_CSV}"; do
+        filter_name="${filter_spec%%=*}"
+        filter_path="${filter_spec#*=}"
+        if [ -n "${filter_path}" ] && [ ! -f "${filter_path}" ]; then
+            echo "${filter_name} was not found: ${filter_path}" >&2
+            exit 2
+        fi
+    done
 fi
 case "${EVAL_MODEL_SOURCE}" in
     auto|local|hub) ;;
@@ -184,6 +198,17 @@ secret_eval_complete() {
     for result_name in row_results.jsonl all_results.jsonl aggregate_results.json; do
         [ -s "${output_dir}/${result_name}" ] || return 1
     done
+    if [ -n "${AGGREGATE_FILTER_CSV}" ]; then
+        [ -s "${output_dir}/aggregate_results_filtered.json" ] || return 1
+    fi
+}
+
+utility_eval_complete() {
+    local output_dir="$1"
+    [ -s "${output_dir}/utilityeval.eval_results.json" ] || return 1
+    if [ -n "${BASELINE_FILTER_CSV}" ]; then
+        [ -s "${output_dir}/utilityeval.filtered.eval_results.json" ] || return 1
+    fi
 }
 
 run_cmd() {
@@ -202,11 +227,20 @@ write_secret_eval_config() {
     local output_dir="$3"
     "${PYTHON_BIN}" - \
         "${config_path}" "${model_path}" "${output_dir}" \
-        "${SUFFIX_BS}" "${MAX_NEW_TOKENS}" "${DTYPE}" <<'PY'
+        "${SUFFIX_BS}" "${MAX_NEW_TOKENS}" "${DTYPE}" \
+        "${AGGREGATE_FILTER_CSV}" <<'PY'
 import json
 import sys
 
-config_path, model_path, output_dir, batch_size, max_new_tokens, dtype = sys.argv[1:]
+(
+    config_path,
+    model_path,
+    output_dir,
+    batch_size,
+    max_new_tokens,
+    dtype,
+    aggregate_filter_csv,
+) = sys.argv[1:]
 config = {
     "model_name": model_path,
     "trust_remote_code": False,
@@ -233,6 +267,8 @@ config = {
         "do_sample": False,
     },
 }
+if aggregate_filter_csv:
+    config["aggregate_filter_csv"] = aggregate_filter_csv
 with open(config_path, "w", encoding="utf-8") as handle:
     json.dump(config, handle, indent=2)
     handle.write("\n")
@@ -368,6 +404,7 @@ run_checkpoint_evaluations() {
     local utility_output="${eval_root}/utilityeval_pass1"
     local secret_config="${config_dir}/${epoch_label}_secret_forget_pass1.json"
     local utility_result="${utility_output}/utilityeval.eval_results.json"
+    local utility_filtered_result="${utility_output}/utilityeval.filtered.eval_results.json"
     local status=0
 
     mkdir -p "${config_dir}" "${utility_output}"
@@ -375,8 +412,9 @@ run_checkpoint_evaluations() {
     echo "GPU ${gpu_id}: evaluating model=${model_key}, lr=${learning_rate}, epoch=${epoch_index}, checkpoint=${checkpoint}"
 
     if [ "${SKIP_EXISTING}" = "1" ] && \
-        secret_eval_complete "${secret_output}" && [ -s "${utility_result}" ]; then
-        echo "GPU ${gpu_id}: SKIPPED completed secret-forget and UtilityEval pass@1"
+        secret_eval_complete "${secret_output}" && \
+        utility_eval_complete "${utility_output}"; then
+        echo "GPU ${gpu_id}: SKIPPED completed filtered secret-forget and UtilityEval pass@1"
         return 0
     fi
 
@@ -419,11 +457,6 @@ run_checkpoint_evaluations() {
         fi
     fi
 
-    if [ "${SKIP_EXISTING}" = "1" ] && [ -s "${utility_result}" ]; then
-        echo "GPU ${gpu_id}: SKIPPED completed UtilityEval pass@1"
-        return "${status}"
-    fi
-
     local utility_cmd=(
         env
         "CUDA_VISIBLE_DEVICES=${gpu_id}"
@@ -446,10 +479,39 @@ run_checkpoint_evaluations() {
         utility_cmd+=(--parallel "${UTILITY_PARALLEL}")
     fi
 
-    echo "GPU ${gpu_id}: UtilityEval, pass@1"
-    if ! run_cmd "${utility_cmd[@]}"; then
-        echo "GPU ${gpu_id}: UtilityEval FAILED for ${model_key} lr=${learning_rate} ${checkpoint}" >&2
-        status=1
+    if [ "${SKIP_EXISTING}" = "1" ] && [ -s "${utility_result}" ]; then
+        echo "GPU ${gpu_id}: SKIPPED completed raw UtilityEval pass@1"
+    else
+        echo "GPU ${gpu_id}: UtilityEval, pass@1"
+        if ! run_cmd "${utility_cmd[@]}"; then
+            echo "GPU ${gpu_id}: UtilityEval FAILED for ${model_key} lr=${learning_rate} ${checkpoint}" >&2
+            status=1
+            if [ "${CONTINUE_ON_ERROR}" != "1" ]; then
+                return "${status}"
+            fi
+        fi
+    fi
+
+    if [ -n "${BASELINE_FILTER_CSV}" ]; then
+        if [ "${SKIP_EXISTING}" = "1" ] && [ -s "${utility_filtered_result}" ]; then
+            echo "GPU ${gpu_id}: SKIPPED completed filtered UtilityEval pass@1"
+        elif [ "${DRY_RUN}" = "1" ] || [ -s "${utility_result}" ]; then
+            local utility_filter_cmd=(
+                "${PYTHON_BIN}" "${EVALPLUS_DIR}/tools/filter_baseline_failed_results.py"
+                "${utility_result}"
+                --filter-csv "${BASELINE_FILTER_CSV}"
+                --output "${utility_filtered_result}"
+                --dataset utilityeval
+            )
+            echo "GPU ${gpu_id}: filtering UtilityEval baseline-failed tasks"
+            if ! run_cmd "${utility_filter_cmd[@]}"; then
+                echo "GPU ${gpu_id}: UtilityEval filtering FAILED for ${model_key} lr=${learning_rate} ${checkpoint}" >&2
+                status=1
+            fi
+        else
+            echo "GPU ${gpu_id}: cannot filter missing UtilityEval result: ${utility_result}" >&2
+            status=1
+        fi
     fi
     return "${status}"
 }
@@ -565,7 +627,11 @@ for model_key in "${model_keys[@]}"; do
 done
 
 write_grid_summary() {
-    "${PYTHON_BIN}" - "${OUTPUT_ROOT}" "${jobs[@]}" <<'PY'
+    "${PYTHON_BIN}" - \
+        "${OUTPUT_ROOT}" \
+        "${AGGREGATE_FILTER_CSV}" \
+        "${BASELINE_FILTER_CSV}" \
+        "${jobs[@]}" <<'PY'
 import csv
 import json
 import re
@@ -573,7 +639,9 @@ import sys
 from pathlib import Path
 
 output_root = Path(sys.argv[1])
-jobs = sys.argv[2:]
+secret_filter_enabled = bool(sys.argv[2])
+utility_filter_enabled = bool(sys.argv[3])
+jobs = sys.argv[4:]
 rows = []
 for job in jobs:
     model_key, source_repo, learning_rate = job.split("|", 2)
@@ -588,21 +656,59 @@ for job in jobs:
 
     for epoch, global_step, eval_dir in sorted(eval_dirs):
         checkpoint = f"checkpoint-{global_step}"
-        secret_path = (
+        secret_raw_path = (
             eval_dir / "secret_forget_pass1" / "aggregate_results.json"
         )
-        utility_path = (
+        secret_filtered_path = (
+            eval_dir
+            / "secret_forget_pass1"
+            / "aggregate_results_filtered.json"
+        )
+        utility_raw_path = (
             eval_dir
             / "utilityeval_pass1"
             / "utilityeval.eval_results.json"
         )
+        utility_filtered_path = (
+            eval_dir
+            / "utilityeval_pass1"
+            / "utilityeval.filtered.eval_results.json"
+        )
+        secret_path = (
+            secret_filtered_path if secret_filter_enabled else secret_raw_path
+        )
+        utility_path = (
+            utility_filtered_path if utility_filter_enabled else utility_raw_path
+        )
 
         secret_similarity = None
         utility_pass_1 = None
+        raw_secret_similarity = None
+        raw_utility_pass_1 = None
+        secret_excluded_examples = 0
+        utility_excluded_tasks = 0
+        if secret_raw_path.is_file():
+            with secret_raw_path.open(encoding="utf-8") as handle:
+                raw_secret_payload = json.load(handle)
+            raw_secret_similarity = raw_secret_payload.get(
+                "average_similarity_score"
+            )
+        if utility_raw_path.is_file():
+            with utility_raw_path.open(encoding="utf-8") as handle:
+                raw_utility_payload = json.load(handle)
+            raw_utility_pass_1 = (
+                raw_utility_payload.get("pass_at_k", {})
+                .get("base", {})
+                .get("pass@1")
+            )
         if secret_path.is_file():
             with secret_path.open(encoding="utf-8") as handle:
                 secret_payload = json.load(handle)
             secret_similarity = secret_payload.get("average_similarity_score")
+            secret_excluded_examples = (
+                secret_payload.get("uuid_filter", {})
+                .get("num_excluded_examples", 0)
+            )
         if utility_path.is_file():
             with utility_path.open(encoding="utf-8") as handle:
                 utility_payload = json.load(handle)
@@ -610,6 +716,10 @@ for job in jobs:
                 utility_payload.get("pass_at_k", {})
                 .get("base", {})
                 .get("pass@1")
+            )
+            utility_excluded_tasks = (
+                utility_payload.get("baseline_filter", {})
+                .get("excluded_task_count", 0)
             )
 
         rows.append(
@@ -620,8 +730,14 @@ for job in jobs:
                 "epoch": epoch,
                 "checkpoint": checkpoint,
                 "global_step": global_step,
+                "secret_forget_similarity_pass1_raw": raw_secret_similarity,
                 "secret_forget_similarity_pass1": secret_similarity,
+                "secret_excluded_examples": secret_excluded_examples,
+                "utilityeval_pass1_raw": raw_utility_pass_1,
                 "utilityeval_pass1": utility_pass_1,
+                "utility_excluded_tasks": utility_excluded_tasks,
+                "secret_filter_applied": secret_filter_enabled,
+                "utility_filter_applied": utility_filter_enabled,
                 "complete": (
                     secret_similarity is not None and utility_pass_1 is not None
                 ),
@@ -637,8 +753,14 @@ fieldnames = [
     "epoch",
     "checkpoint",
     "global_step",
+    "secret_forget_similarity_pass1_raw",
     "secret_forget_similarity_pass1",
+    "secret_excluded_examples",
+    "utilityeval_pass1_raw",
     "utilityeval_pass1",
+    "utility_excluded_tasks",
+    "secret_filter_applied",
+    "utility_filter_applied",
     "complete",
 ]
 with summary_path.open("w", encoding="utf-8", newline="") as handle:
@@ -681,7 +803,17 @@ if [ "${RUN_UNLEARNING}" = "1" ]; then
 fi
 if [ "${RUN_EVALUATIONS}" = "1" ]; then
     echo "Evaluation model source: ${EVAL_MODEL_SOURCE}"
-    echo "Phase: secret forget pass@1 and UtilityEval pass@1"
+    echo "Phase: filtered secret forget pass@1 and filtered UtilityEval pass@1"
+    if [ -n "${AGGREGATE_FILTER_CSV}" ]; then
+        echo "Secret UUID filter: ${AGGREGATE_FILTER_CSV}"
+    else
+        echo "Secret UUID filter: disabled"
+    fi
+    if [ -n "${BASELINE_FILTER_CSV}" ]; then
+        echo "UtilityEval baseline filter: ${BASELINE_FILTER_CSV}"
+    else
+        echo "UtilityEval baseline filter: disabled"
+    fi
 fi
 echo "Output root: ${OUTPUT_ROOT}"
 
