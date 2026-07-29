@@ -36,6 +36,7 @@ CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 RUN_UNLEARNING="${RUN_UNLEARNING:-1}"
 RUN_EVALUATIONS="${RUN_EVALUATIONS:-1}"
+EVAL_MODEL_SOURCE="${EVAL_MODEL_SOURCE:-auto}"
 
 if [ -n "${PYTHON_BIN:-}" ]; then
     if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
@@ -64,6 +65,13 @@ if [ "${RUN_UNLEARNING}" = "0" ] && [ "${RUN_EVALUATIONS}" = "0" ]; then
     echo "At least one of RUN_UNLEARNING or RUN_EVALUATIONS must be 1." >&2
     exit 2
 fi
+case "${EVAL_MODEL_SOURCE}" in
+    auto|local|hub) ;;
+    *)
+        echo "EVAL_MODEL_SOURCE must be auto, local, or hub: ${EVAL_MODEL_SOURCE}" >&2
+        exit 2
+        ;;
+esac
 
 for integer_spec in \
     "TRAIN_BS=${TRAIN_BS}" \
@@ -231,8 +239,74 @@ with open(config_path, "w", encoding="utf-8") as handle:
 PY
 }
 
+discover_hub_checkpoints() {
+    local repo_id="$1"
+    "${PYTHON_BIN}" - "${repo_id}" <<'PY'
+import re
+import sys
+
+from huggingface_hub import list_repo_files
+
+repo_id = sys.argv[1]
+repo_files = list_repo_files(repo_id=repo_id, repo_type="model")
+checkpoints = {
+    path.split("/", 1)[0]
+    for path in repo_files
+    if re.match(r"checkpoint-\d+/", path)
+}
+for checkpoint in sorted(checkpoints, key=lambda name: int(name.split("-", 1)[1])):
+    print(checkpoint)
+PY
+}
+
+resolve_hub_checkpoint_path() {
+    local repo_id="$1"
+    local checkpoint="$2"
+    if [ "${DRY_RUN}" = "1" ]; then
+        echo "HF_CACHE/${repo_id}/${checkpoint}"
+        return 0
+    fi
+    "${PYTHON_BIN}" - "${repo_id}" "${checkpoint}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+from huggingface_hub import snapshot_download
+
+repo_id, checkpoint = sys.argv[1:]
+if not re.fullmatch(r"checkpoint-\d+", checkpoint):
+    raise ValueError(f"Invalid checkpoint name: {checkpoint}")
+snapshot = Path(
+    snapshot_download(
+        repo_id=repo_id,
+        repo_type="model",
+        allow_patterns=[f"{checkpoint}/*"],
+    )
+)
+checkpoint_path = snapshot / checkpoint
+weight_files = (
+    checkpoint_path / "model.safetensors",
+    checkpoint_path / "model.safetensors.index.json",
+    checkpoint_path / "pytorch_model.bin",
+    checkpoint_path / "pytorch_model.bin.index.json",
+)
+if not (checkpoint_path / "config.json").is_file() or not any(
+    path.is_file() for path in weight_files
+):
+    raise RuntimeError(
+        f"{repo_id}/{checkpoint} is not a complete full-model checkpoint"
+    )
+if not (checkpoint_path / "tokenizer_config.json").is_file():
+    raise RuntimeError(
+        f"{repo_id}/{checkpoint} does not contain the saved tokenizer"
+    )
+print(checkpoint_path)
+PY
+}
+
 resolve_eval_checkpoints() {
     local model_dir="$1"
+    local repo_id="$2"
     if [ -n "${CHECKPOINTS}" ]; then
         local normalized_checkpoints="${CHECKPOINTS//,/ }"
         local override_checkpoints=()
@@ -248,6 +322,15 @@ resolve_eval_checkpoints() {
         return 0
     fi
 
+    if [ "${DRY_RUN}" = "1" ]; then
+        local epoch_index
+        echo "DRY_RUN: using placeholder checkpoint steps 1-${NUM_TRAIN_EPOCHS}" >&2
+        for ((epoch_index = 1; epoch_index <= NUM_TRAIN_EPOCHS; epoch_index++)); do
+            echo "checkpoint-${epoch_index}"
+        done
+        return 0
+    fi
+
     local checkpoint_path
     local discovered_checkpoints=()
     for checkpoint_path in "${model_dir}"/checkpoint-*; do
@@ -256,18 +339,16 @@ resolve_eval_checkpoints() {
             discovered_checkpoints+=("$(basename "${checkpoint_path}")")
         fi
     done
-    if [ "${#discovered_checkpoints[@]}" -gt 0 ]; then
+    if [ "${EVAL_MODEL_SOURCE}" != "hub" ] && \
+        [ "${#discovered_checkpoints[@]}" -gt 0 ]; then
         printf '%s\n' "${discovered_checkpoints[@]}" | sort -t- -k2,2n
         return 0
     fi
 
-    if [ "${DRY_RUN}" = "1" ]; then
-        local epoch_index
-        echo "DRY_RUN: using placeholder checkpoint steps 1-${NUM_TRAIN_EPOCHS}" >&2
-        for ((epoch_index = 1; epoch_index <= NUM_TRAIN_EPOCHS; epoch_index++)); do
-            echo "checkpoint-${epoch_index}"
-        done
+    if [ "${EVAL_MODEL_SOURCE}" = "local" ]; then
+        return 0
     fi
+    discover_hub_checkpoints "${repo_id}"
 }
 
 run_checkpoint_evaluations() {
@@ -277,7 +358,9 @@ run_checkpoint_evaluations() {
     local run_root="$4"
     local checkpoint="$5"
     local epoch_index="$6"
-    local model_path="${run_root}/model/${checkpoint}"
+    local repo_id="$7"
+    local local_model_path="${run_root}/model/${checkpoint}"
+    local model_path=""
     local epoch_label="epoch-${epoch_index}_${checkpoint}"
     local eval_root="${run_root}/evaluations/${epoch_label}"
     local config_dir="${run_root}/configs"
@@ -287,14 +370,35 @@ run_checkpoint_evaluations() {
     local utility_result="${utility_output}/utilityeval.eval_results.json"
     local status=0
 
-    if [ "${DRY_RUN}" != "1" ] && ! full_model_complete "${model_path}"; then
-        echo "GPU ${gpu_id}: incomplete full-model checkpoint: ${model_path}" >&2
-        return 1
-    fi
-
     mkdir -p "${config_dir}" "${utility_output}"
     echo
     echo "GPU ${gpu_id}: evaluating model=${model_key}, lr=${learning_rate}, epoch=${epoch_index}, checkpoint=${checkpoint}"
+
+    if [ "${SKIP_EXISTING}" = "1" ] && \
+        secret_eval_complete "${secret_output}" && [ -s "${utility_result}" ]; then
+        echo "GPU ${gpu_id}: SKIPPED completed secret-forget and UtilityEval pass@1"
+        return 0
+    fi
+
+    if [ "${EVAL_MODEL_SOURCE}" = "hub" ]; then
+        if ! model_path="$(resolve_hub_checkpoint_path "${repo_id}" "${checkpoint}")"; then
+            echo "GPU ${gpu_id}: failed to download ${repo_id}/${checkpoint}" >&2
+            return 1
+        fi
+        echo "GPU ${gpu_id}: Hub checkpoint cache=${model_path}"
+    elif full_model_complete "${local_model_path}"; then
+        model_path="${local_model_path}"
+        echo "GPU ${gpu_id}: local checkpoint=${model_path}"
+    elif [ "${EVAL_MODEL_SOURCE}" = "auto" ]; then
+        if ! model_path="$(resolve_hub_checkpoint_path "${repo_id}" "${checkpoint}")"; then
+            echo "GPU ${gpu_id}: failed to download ${repo_id}/${checkpoint}" >&2
+            return 1
+        fi
+        echo "GPU ${gpu_id}: local checkpoint missing; Hub checkpoint cache=${model_path}"
+    else
+        echo "GPU ${gpu_id}: incomplete local full-model checkpoint: ${local_model_path}" >&2
+        return 1
+    fi
 
     write_secret_eval_config "${secret_config}" "${model_path}" "${secret_output}"
     if [ "${SKIP_EXISTING}" = "1" ] && secret_eval_complete "${secret_output}"; then
@@ -415,11 +519,11 @@ run_job() {
                 return 1
             fi
         fi
-    elif [ "${DRY_RUN}" != "1" ] && ! full_model_complete "${model_dir}"; then
-        echo "GPU ${gpu_id}: full model not found for evaluation: ${model_dir}" >&2
-        return 1
     else
-        echo "GPU ${gpu_id}: using existing full model for evaluation"
+        echo "GPU ${gpu_id}: evaluation model source=${EVAL_MODEL_SOURCE}"
+        if [ "${EVAL_MODEL_SOURCE}" != "local" ]; then
+            echo "GPU ${gpu_id}: evaluation Hub repo=${repo_id}"
+        fi
     fi
 
     if [ "${RUN_EVALUATIONS}" != "1" ]; then
@@ -427,11 +531,11 @@ run_job() {
     fi
 
     local checkpoint_list
-    if ! checkpoint_list="$(resolve_eval_checkpoints "${model_dir}")"; then
+    if ! checkpoint_list="$(resolve_eval_checkpoints "${model_dir}" "${repo_id}")"; then
         return 1
     fi
     if [ -z "${checkpoint_list}" ]; then
-        echo "GPU ${gpu_id}: no complete checkpoint-* models found in ${model_dir}" >&2
+        echo "GPU ${gpu_id}: no checkpoint-* full models found for ${repo_id}" >&2
         return 1
     fi
 
@@ -442,7 +546,7 @@ run_job() {
         epoch_index=$((epoch_index + 1))
         if ! run_checkpoint_evaluations \
             "${gpu_id}" "${model_key}" "${learning_rate}" "${run_root}" \
-            "${checkpoint}" "${epoch_index}"; then
+            "${checkpoint}" "${epoch_index}" "${repo_id}"; then
             status=1
             if [ "${CONTINUE_ON_ERROR}" != "1" ]; then
                 return "${status}"
@@ -576,6 +680,7 @@ if [ "${RUN_UNLEARNING}" = "1" ]; then
     echo "Phase: full-model GA unlearning"
 fi
 if [ "${RUN_EVALUATIONS}" = "1" ]; then
+    echo "Evaluation model source: ${EVAL_MODEL_SOURCE}"
     echo "Phase: secret forget pass@1 and UtilityEval pass@1"
 fi
 echo "Output root: ${OUTPUT_ROOT}"
