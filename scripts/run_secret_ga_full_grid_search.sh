@@ -15,7 +15,7 @@ LLAMA_SOURCE_REPO="${LLAMA_SOURCE_REPO:-dbaysal/metallama3.2-3b-learned-checkpoi
 QWEN_TOKENIZER_REPO="${QWEN_TOKENIZER_REPO:-Qwen/Qwen2.5-Coder-3B}"
 LLAMA_TOKENIZER_REPO="${LLAMA_TOKENIZER_REPO:-meta-llama/Llama-3.2-3B}"
 HUB_NAMESPACE="${HUB_NAMESPACE:-dbaysal}"
-HUB_UPLOAD="${HUB_UPLOAD:-0}"
+HUB_UPLOAD="${HUB_UPLOAD:-1}"
 
 # Match the original custom_hf_unlearning/method/ga.yaml defaults exactly.
 TRAIN_BS="${TRAIN_BS:-8}"
