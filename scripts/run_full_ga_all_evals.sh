@@ -8,6 +8,7 @@ EVALPLUS_DIR="${REPO_ROOT}/evalplus"
 
 QWEN_MODEL_REPO="${QWEN_MODEL_REPO:-dbaysal/secret-unlearning-qwen-checkpoint282-ga-full}"
 LLAMA_MODEL_REPO="${LLAMA_MODEL_REPO:-dbaysal/secret-unlearning-llama-checkpoint282-ga-full}"
+MODEL_KEYS="${MODEL_KEYS:-qwen2_5_coder_3b meta_llama3_2_3b}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-${REPO_ROOT}/Results/full_ga_all_evals}"
 CHECKPOINTS="${CHECKPOINTS:-}"
 
@@ -23,15 +24,84 @@ EVALPLUS_DATASET="${EVALPLUS_DATASET:-humaneval-forget-utility}"
 EVALPLUS_PARALLEL="${EVALPLUS_PARALLEL:-}"
 EVALPLUS_TIMEOUT_PER_TASK="${EVALPLUS_TIMEOUT_PER_TASK:-30}"
 EVALPLUS_SANITIZE_WORKERS="${EVALPLUS_SANITIZE_WORKERS:-4}"
-BASELINE_FILTER_CSV="${BASELINE_FILTER_CSV:-${EVALPLUS_DIR}/evalplus/baseline_failed_test_ids.csv}"
+AGGREGATE_FILTER_CSV="${AGGREGATE_FILTER_CSV-${UNLEARNING_EVAL_DIR}/non_exact_matches.csv}"
+BASELINE_FILTER_CSV="${BASELINE_FILTER_CSV-${EVALPLUS_DIR}/evalplus/baseline_failed_test_ids.csv}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
 CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 
-model_specs=(
-    "qwen2_5_coder_3b|${QWEN_MODEL_REPO}"
-    "meta_llama3_2_3b|${LLAMA_MODEL_REPO}"
-)
+if [ -n "${PYTHON_BIN:-}" ]; then
+    if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+        echo "Configured PYTHON_BIN was not found: ${PYTHON_BIN}" >&2
+        exit 127
+    fi
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+else
+    echo "Python was not found. Activate the project environment or set PYTHON_BIN." >&2
+    exit 127
+fi
+
+for boolean_name in SKIP_EXISTING CONTINUE_ON_ERROR DRY_RUN; do
+    boolean_value="${!boolean_name}"
+    if [ "${boolean_value}" != "0" ] && [ "${boolean_value}" != "1" ]; then
+        echo "${boolean_name} must be 0 or 1: ${boolean_value}" >&2
+        exit 2
+    fi
+done
+for filter_spec in \
+    "AGGREGATE_FILTER_CSV=${AGGREGATE_FILTER_CSV}" \
+    "BASELINE_FILTER_CSV=${BASELINE_FILTER_CSV}"; do
+    filter_name="${filter_spec%%=*}"
+    filter_path="${filter_spec#*=}"
+    if [ -n "${filter_path}" ] && [ ! -f "${filter_path}" ]; then
+        echo "${filter_name} was not found: ${filter_path}" >&2
+        exit 2
+    fi
+done
+for integer_spec in \
+    "SUFFIX_BS=${SUFFIX_BS}" \
+    "EVALPLUS_BS=${EVALPLUS_BS}" \
+    "PASS_K=${PASS_K}" \
+    "MAX_NEW_TOKENS=${MAX_NEW_TOKENS}" \
+    "EVALPLUS_TIMEOUT_PER_TASK=${EVALPLUS_TIMEOUT_PER_TASK}" \
+    "EVALPLUS_SANITIZE_WORKERS=${EVALPLUS_SANITIZE_WORKERS}"; do
+    integer_name="${integer_spec%%=*}"
+    integer_value="${integer_spec#*=}"
+    if ! [[ "${integer_value}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "${integer_name} must be a positive integer: ${integer_value}" >&2
+        exit 2
+    fi
+done
+if [ -n "${EVALPLUS_PARALLEL}" ] && \
+    ! [[ "${EVALPLUS_PARALLEL}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "EVALPLUS_PARALLEL must be a positive integer: ${EVALPLUS_PARALLEL}" >&2
+    exit 2
+fi
+
+model_specs=()
+normalized_model_keys="${MODEL_KEYS//,/ }"
+read -r -a model_keys <<< "${normalized_model_keys}"
+for model_key in "${model_keys[@]}"; do
+    case "${model_key}" in
+        qwen2_5_coder_3b)
+            model_specs+=("${model_key}|${QWEN_MODEL_REPO}")
+            ;;
+        meta_llama3_2_3b)
+            model_specs+=("${model_key}|${LLAMA_MODEL_REPO}")
+            ;;
+        *)
+            echo "Unsupported MODEL_KEYS entry: ${model_key}" >&2
+            exit 2
+            ;;
+    esac
+done
+if [ "${#model_specs[@]}" -eq 0 ]; then
+    echo "MODEL_KEYS must contain at least one supported model." >&2
+    exit 2
+fi
 
 detect_gpu_ids() {
     if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
@@ -60,7 +130,14 @@ discover_checkpoints() {
         printf '%s\n' ${CHECKPOINTS//,/ }
         return 0
     fi
-    python - "${repo_id}" <<'PY'
+    if [ "${DRY_RUN}" = "1" ]; then
+        local epoch_index
+        for epoch_index in 1 2 3; do
+            echo "checkpoint-${epoch_index}"
+        done
+        return 0
+    fi
+    "${PYTHON_BIN}" - "${repo_id}" <<'PY'
 import re
 import sys
 from huggingface_hub import list_repo_files
@@ -80,7 +157,7 @@ PY
 resolve_checkpoint_path() {
     local repo_id="$1"
     local checkpoint="$2"
-    python - "${repo_id}" "${checkpoint}" <<'PY'
+    "${PYTHON_BIN}" - "${repo_id}" "${checkpoint}" <<'PY'
 import re
 import sys
 from pathlib import Path
@@ -97,11 +174,20 @@ snapshot = Path(
     )
 )
 checkpoint_path = snapshot / checkpoint
-if not (checkpoint_path / "config.json").is_file():
+weight_files = (
+    checkpoint_path / "model.safetensors",
+    checkpoint_path / "model.safetensors.index.json",
+    checkpoint_path / "pytorch_model.bin",
+    checkpoint_path / "pytorch_model.bin.index.json",
+)
+if not (checkpoint_path / "config.json").is_file() or not any(
+    path.is_file() for path in weight_files
+):
     raise RuntimeError(
-        f"{repo_id}/{checkpoint} is not a complete full-model checkpoint: "
-        "config.json was not found"
+        f"{repo_id}/{checkpoint} is not a complete full-model checkpoint"
     )
+if not (checkpoint_path / "tokenizer_config.json").is_file():
+    raise RuntimeError(f"{repo_id}/{checkpoint} does not contain the saved tokenizer")
 print(checkpoint_path)
 PY
 }
@@ -110,9 +196,9 @@ write_unlearningeval_config() {
     local config_path="$1"
     local model_path="$2"
     local output_dir="$3"
-    python - "${config_path}" "${model_path}" "${output_dir}" \
+    "${PYTHON_BIN}" - "${config_path}" "${model_path}" "${output_dir}" \
         "${SUFFIX_BS}" "${PASS_K}" "${TEMPERATURE}" "${TOP_P}" \
-        "${MAX_NEW_TOKENS}" "${DTYPE}" <<'PY'
+        "${MAX_NEW_TOKENS}" "${DTYPE}" "${AGGREGATE_FILTER_CSV}" <<'PY'
 import json
 import sys
 
@@ -126,6 +212,7 @@ import sys
     top_p,
     max_new_tokens,
     dtype,
+    aggregate_filter_csv,
 ) = sys.argv[1:]
 
 pass_k = int(pass_k)
@@ -182,6 +269,8 @@ config = {
     ],
     "generation": generation,
 }
+if aggregate_filter_csv:
+    config["aggregate_filter_csv"] = aggregate_filter_csv
 with open(config_path, "w", encoding="utf-8") as handle:
     json.dump(config, handle, indent=2)
     handle.write("\n")
@@ -195,6 +284,9 @@ unlearningeval_complete() {
         for result_name in row_results.jsonl all_results.jsonl aggregate_results.json; do
             [ -s "${output_dir}/${dataset_label}/${result_name}" ] || return 1
         done
+        if [ -n "${AGGREGATE_FILTER_CSV}" ]; then
+            [ -s "${output_dir}/${dataset_label}/aggregate_results_filtered.json" ] || return 1
+        fi
     done
 }
 
@@ -227,11 +319,11 @@ run_checkpoint_job() {
     echo "GPU ${gpu_id}: cached_model=${model_path}"
 
     if [ "${SKIP_EXISTING}" = "1" ] && unlearningeval_complete "${suffix_root}"; then
-        echo "GPU ${gpu_id}: SKIPPED completed UnlearningEvaluation"
+        echo "GPU ${gpu_id}: SKIPPED completed filtered UnlearningEvaluation"
     else
         local suffix_cmd=(
             env "CUDA_VISIBLE_DEVICES=${gpu_id}"
-            python evaluate_suffix_generation.py
+            "${PYTHON_BIN}" evaluate_suffix_generation.py
             --config "${config_path}"
         )
         echo "GPU ${gpu_id}: UnlearningEvaluation, batch_size=${SUFFIX_BS}, pass@${PASS_K}"
@@ -252,8 +344,8 @@ run_checkpoint_job() {
 
     if [ "${SKIP_EXISTING}" = "1" ] && \
         [ -s "${result_path}" ] && \
-        { [ ! -f "${BASELINE_FILTER_CSV}" ] || [ -s "${filtered_result_path}" ]; }; then
-        echo "GPU ${gpu_id}: SKIPPED completed EvalPlus"
+        { [ -z "${BASELINE_FILTER_CSV}" ] || [ -s "${filtered_result_path}" ]; }; then
+        echo "GPU ${gpu_id}: SKIPPED completed filtered EvalPlus"
         return "${job_status}"
     fi
 
@@ -263,7 +355,7 @@ run_checkpoint_job() {
         "PYTHONPATH=${EVALPLUS_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
         "EVALPLUS_TIMEOUT_PER_TASK=${EVALPLUS_TIMEOUT_PER_TASK}"
         "EVALPLUS_SANITIZE_WORKERS=${EVALPLUS_SANITIZE_WORKERS}"
-        python -m evalplus.evaluate
+        "${PYTHON_BIN}" -m evalplus.evaluate
         --model "${model_path}"
         --dataset "${EVALPLUS_DATASET}"
         --backend "${BACKEND}"
@@ -287,29 +379,47 @@ run_checkpoint_job() {
         evalplus_cmd+=(--parallel "${EVALPLUS_PARALLEL}")
     fi
 
+    local filter_cmd=()
+    if [ -n "${BASELINE_FILTER_CSV}" ]; then
+        filter_cmd=(
+            "${PYTHON_BIN}" "${EVALPLUS_DIR}/tools/filter_baseline_failed_results.py"
+            "${result_path}"
+            --filter-csv "${BASELINE_FILTER_CSV}"
+            --output "${filtered_result_path}"
+        )
+    fi
+
     echo "GPU ${gpu_id}: HumanEval + ForgetEval + UtilityEval, batch_size=${EVALPLUS_BS}, pass@${PASS_K}"
     printf '$'
     printf ' %q' "${evalplus_cmd[@]}"
     echo
-
-    if [ "${DRY_RUN}" != "1" ] && \
-        { [ "${SKIP_EXISTING}" != "1" ] || [ ! -s "${result_path}" ]; } && \
-        ! "${evalplus_cmd[@]}"; then
-        echo "GPU ${gpu_id}: EvalPlus FAILED" >&2
-        job_status=1
-        if [ "${CONTINUE_ON_ERROR}" != "1" ]; then
-            return "${job_status}"
-        fi
+    if [ "${#filter_cmd[@]}" -gt 0 ]; then
+        printf '$'
+        printf ' %q' "${filter_cmd[@]}"
+        echo
     fi
 
-    if [ "${DRY_RUN}" != "1" ] && [ -f "${BASELINE_FILTER_CSV}" ] && \
-        { [ "${SKIP_EXISTING}" != "1" ] || [ ! -s "${filtered_result_path}" ]; }; then
-        if ! python "${EVALPLUS_DIR}/tools/filter_baseline_failed_results.py" \
-            "${result_path}" \
-            --filter-csv "${BASELINE_FILTER_CSV}" \
-            --output "${filtered_result_path}"; then
-            echo "GPU ${gpu_id}: baseline-result filtering FAILED" >&2
+    if [ "${DRY_RUN}" != "1" ]; then
+        if [ "${SKIP_EXISTING}" = "1" ] && [ -s "${result_path}" ]; then
+            echo "GPU ${gpu_id}: SKIPPED existing raw EvalPlus result"
+        elif ! "${evalplus_cmd[@]}"; then
+            echo "GPU ${gpu_id}: EvalPlus FAILED" >&2
             job_status=1
+            if [ "${CONTINUE_ON_ERROR}" != "1" ]; then
+                return "${job_status}"
+            fi
+        fi
+
+        if [ "${#filter_cmd[@]}" -gt 0 ]; then
+            if [ "${SKIP_EXISTING}" = "1" ] && [ -s "${filtered_result_path}" ]; then
+                echo "GPU ${gpu_id}: SKIPPED existing filtered EvalPlus result"
+            elif [ ! -s "${result_path}" ]; then
+                echo "GPU ${gpu_id}: cannot filter missing EvalPlus result: ${result_path}" >&2
+                job_status=1
+            elif ! "${filter_cmd[@]}"; then
+                echo "GPU ${gpu_id}: baseline-result filtering FAILED" >&2
+                job_status=1
+            fi
         fi
     fi
 
@@ -317,12 +427,30 @@ run_checkpoint_job() {
 }
 
 jobs=()
+discovery_status=0
 for model_spec in "${model_specs[@]}"; do
     IFS="|" read -r model_key repo_id <<< "${model_spec}"
-    checkpoint_list="$(discover_checkpoints "${repo_id}")"
+    if ! checkpoint_list="$(discover_checkpoints "${repo_id}")"; then
+        echo "Checkpoint discovery failed for ${repo_id}" >&2
+        discovery_status=1
+        if [ "${CONTINUE_ON_ERROR}" != "1" ]; then
+            break
+        fi
+        continue
+    fi
+    epoch_index=0
     while IFS= read -r checkpoint; do
         [ -n "${checkpoint}" ] || continue
-        jobs+=("${model_key}|${repo_id}|${checkpoint}")
+        if ! [[ "${checkpoint}" =~ ^checkpoint-[0-9]+$ ]]; then
+            echo "Invalid checkpoint name from ${repo_id}: ${checkpoint}" >&2
+            discovery_status=1
+            if [ "${CONTINUE_ON_ERROR}" != "1" ]; then
+                break
+            fi
+            continue
+        fi
+        epoch_index=$((epoch_index + 1))
+        jobs+=("${model_key}|${repo_id}|${checkpoint}|${epoch_index}")
     done <<< "${checkpoint_list}"
 done
 
@@ -340,45 +468,103 @@ if [ "${#gpu_ids[@]}" -eq 0 ]; then
     exit 1
 fi
 
-run_worker() {
+launch_job() {
     local worker_index="$1"
-    local gpu_id="$2"
-    local status=0
-    local job_index model_key repo_id checkpoint
-    for ((job_index = worker_index; job_index < ${#jobs[@]}; job_index += ${#gpu_ids[@]})); do
-        IFS="|" read -r model_key repo_id checkpoint <<< "${jobs[${job_index}]}"
+    local job_index="$2"
+    local gpu_id="${gpu_ids[${worker_index}]}"
+    local model_key repo_id checkpoint epoch_index
+    IFS="|" read -r model_key repo_id checkpoint epoch_index \
+        <<< "${jobs[${job_index}]}"
+    local log_file="${OUTPUT_ROOT}/logs/gpu-${gpu_id}.txt"
+
+    (
+        echo
+        echo "Dispatcher: assigned checkpoint job $((job_index + 1))/${#jobs[@]} to GPU ${gpu_id}"
+        echo "Dispatcher: model=${model_key}, epoch=${epoch_index}, checkpoint=${checkpoint}"
         if ! run_checkpoint_job "${gpu_id}" "${model_key}" "${repo_id}" "${checkpoint}"; then
-            status=1
-            if [ "${CONTINUE_ON_ERROR}" != "1" ]; then
-                return "${status}"
-            fi
+            echo "GPU ${gpu_id}: FAILED model=${model_key}, epoch=${epoch_index}, checkpoint=${checkpoint}" >&2
+            exit 1
         fi
-    done
-    return "${status}"
+    ) >> "${log_file}" 2>&1 &
+    pids[${worker_index}]="$!"
 }
 
 echo "Full-model checkpoint evaluation suite"
-echo "Qwen: ${QWEN_MODEL_REPO}"
-echo "Llama: ${LLAMA_MODEL_REPO}"
-echo "Queued checkpoints: ${#jobs[@]}"
+for model_spec in "${model_specs[@]}"; do
+    IFS="|" read -r model_key repo_id <<< "${model_spec}"
+    echo "${model_key}: ${repo_id}"
+done
+echo "Queued ${#jobs[@]} checkpoint jobs; the next pending epoch goes to the first free GPU."
 echo "GPUs: ${gpu_ids[*]}"
 echo "UnlearningEvaluation batch size: ${SUFFIX_BS}"
 echo "EvalPlus batch size: ${EVALPLUS_BS}"
 echo "EvalPlus dataset: ${EVALPLUS_DATASET}"
 echo "Pass@k: ${PASS_K}"
+if [ -n "${AGGREGATE_FILTER_CSV}" ]; then
+    echo "UnlearningEvaluation filter: ${AGGREGATE_FILTER_CSV}"
+else
+    echo "UnlearningEvaluation filter: disabled"
+fi
+if [ -n "${BASELINE_FILTER_CSV}" ]; then
+    echo "EvalPlus baseline filter: ${BASELINE_FILTER_CSV}"
+else
+    echo "EvalPlus baseline filter: disabled"
+fi
 echo "Output root: ${OUTPUT_ROOT}"
 
 mkdir -p "${OUTPUT_ROOT}/logs"
 pids=()
 for worker_index in "${!gpu_ids[@]}"; do
     gpu_id="${gpu_ids[${worker_index}]}"
-    run_worker "${worker_index}" "${gpu_id}" \
-        > "${OUTPUT_ROOT}/logs/gpu-${gpu_id}.txt" 2>&1 &
-    pids+=("$!")
+    log_file="${OUTPUT_ROOT}/logs/gpu-${gpu_id}.txt"
+    : > "${log_file}"
+    echo "GPU ${gpu_id} log: ${log_file}"
+    pids+=("")
 done
 
-status=0
-for pid in "${pids[@]}"; do
-    wait "${pid}" || status=1
+status="${discovery_status}"
+next_job_index=0
+active_jobs=0
+
+for worker_index in "${!gpu_ids[@]}"; do
+    if [ "${next_job_index}" -ge "${#jobs[@]}" ]; then
+        break
+    fi
+    launch_job "${worker_index}" "${next_job_index}"
+    next_job_index=$((next_job_index + 1))
+    active_jobs=$((active_jobs + 1))
 done
+
+while [ "${active_jobs}" -gt 0 ]; do
+    completion_found=0
+    for worker_index in "${!gpu_ids[@]}"; do
+        pid="${pids[${worker_index}]:-}"
+        if [ -z "${pid}" ] || kill -0 "${pid}" 2>/dev/null; then
+            continue
+        fi
+
+        job_failed=0
+        if ! wait "${pid}"; then
+            status=1
+            job_failed=1
+        fi
+        pids[${worker_index}]=""
+        active_jobs=$((active_jobs - 1))
+        completion_found=1
+
+        if [ "${job_failed}" = "1" ] && [ "${CONTINUE_ON_ERROR}" != "1" ]; then
+            next_job_index="${#jobs[@]}"
+        fi
+        if [ "${next_job_index}" -lt "${#jobs[@]}" ]; then
+            launch_job "${worker_index}" "${next_job_index}"
+            next_job_index=$((next_job_index + 1))
+            active_jobs=$((active_jobs + 1))
+        fi
+    done
+
+    if [ "${completion_found}" -eq 0 ]; then
+        sleep 1
+    fi
+done
+
 exit "${status}"
