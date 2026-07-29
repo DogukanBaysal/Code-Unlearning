@@ -788,6 +788,130 @@ run_worker() {
     return "${status}"
 }
 
+evaluation_jobs=()
+
+build_evaluation_jobs() {
+    local discovery_status=0
+    local job model_key source_repo learning_rate lr_slug run_root model_dir repo_id
+    local checkpoint_list checkpoint epoch_index
+
+    evaluation_jobs=()
+    for job in "${jobs[@]}"; do
+        IFS="|" read -r model_key source_repo learning_rate <<< "${job}"
+        lr_slug="${learning_rate//+/_}"
+        run_root="${OUTPUT_ROOT}/${model_key}/lr-${lr_slug}"
+        model_dir="${run_root}/model"
+        repo_id="${HUB_NAMESPACE}/secret-unlearning-${model_key}-ga-full-lr-${lr_slug}"
+
+        if ! checkpoint_list="$(resolve_eval_checkpoints "${model_dir}" "${repo_id}")"; then
+            echo "Failed to discover evaluation checkpoints for ${repo_id}" >&2
+            discovery_status=1
+            if [ "${CONTINUE_ON_ERROR}" != "1" ]; then
+                return "${discovery_status}"
+            fi
+            continue
+        fi
+        if [ -z "${checkpoint_list}" ]; then
+            echo "No checkpoint-* full models found for ${repo_id}" >&2
+            discovery_status=1
+            if [ "${CONTINUE_ON_ERROR}" != "1" ]; then
+                return "${discovery_status}"
+            fi
+            continue
+        fi
+
+        epoch_index=0
+        while IFS= read -r checkpoint; do
+            [ -n "${checkpoint}" ] || continue
+            epoch_index=$((epoch_index + 1))
+            evaluation_jobs+=(
+                "${model_key}|${learning_rate}|${run_root}|${checkpoint}|${epoch_index}|${repo_id}"
+            )
+        done <<< "${checkpoint_list}"
+    done
+    return "${discovery_status}"
+}
+
+launch_evaluation_job() {
+    local worker_index="$1"
+    local job_index="$2"
+    local gpu_id="${gpu_ids[${worker_index}]}"
+    local model_key learning_rate run_root checkpoint epoch_index repo_id
+    IFS="|" read -r \
+        model_key learning_rate run_root checkpoint epoch_index repo_id \
+        <<< "${evaluation_jobs[${job_index}]}"
+
+    local log_file="${OUTPUT_ROOT}/logs/gpu-${gpu_id}.txt"
+    (
+        echo
+        echo "Dispatcher: assigned checkpoint job $((job_index + 1))/${#evaluation_jobs[@]} to GPU ${gpu_id}"
+        echo "Dispatcher: model=${model_key}, lr=${learning_rate}, epoch=${epoch_index}, checkpoint=${checkpoint}"
+        if ! run_checkpoint_evaluations \
+            "${gpu_id}" "${model_key}" "${learning_rate}" "${run_root}" \
+            "${checkpoint}" "${epoch_index}" "${repo_id}"; then
+            echo "GPU ${gpu_id}: FAILED model=${model_key}, lr=${learning_rate}, epoch=${epoch_index}, checkpoint=${checkpoint}" >&2
+            exit 1
+        fi
+    ) >> "${log_file}" 2>&1 &
+    pids[${worker_index}]="$!"
+}
+
+dispatch_evaluation_jobs() {
+    local status=0
+    local next_job_index=0
+    local active_jobs=0
+    local completion_found worker_index pid job_failed
+
+    pids=()
+    for worker_index in "${!gpu_ids[@]}"; do
+        pids+=("")
+    done
+
+    # Initially give each GPU one checkpoint. Afterwards, the next pending
+    # checkpoint is assigned only when a GPU becomes free.
+    for worker_index in "${!gpu_ids[@]}"; do
+        if [ "${next_job_index}" -ge "${#evaluation_jobs[@]}" ]; then
+            break
+        fi
+        launch_evaluation_job "${worker_index}" "${next_job_index}"
+        next_job_index=$((next_job_index + 1))
+        active_jobs=$((active_jobs + 1))
+    done
+
+    while [ "${active_jobs}" -gt 0 ]; do
+        completion_found=0
+        for worker_index in "${!gpu_ids[@]}"; do
+            pid="${pids[${worker_index}]:-}"
+            if [ -z "${pid}" ] || kill -0 "${pid}" 2>/dev/null; then
+                continue
+            fi
+
+            job_failed=0
+            if ! wait "${pid}"; then
+                status=1
+                job_failed=1
+            fi
+            pids[${worker_index}]=""
+            active_jobs=$((active_jobs - 1))
+            completion_found=1
+
+            if [ "${job_failed}" = "1" ] && [ "${CONTINUE_ON_ERROR}" != "1" ]; then
+                next_job_index="${#evaluation_jobs[@]}"
+            fi
+            if [ "${next_job_index}" -lt "${#evaluation_jobs[@]}" ]; then
+                launch_evaluation_job "${worker_index}" "${next_job_index}"
+                next_job_index=$((next_job_index + 1))
+                active_jobs=$((active_jobs + 1))
+            fi
+        done
+
+        if [ "${completion_found}" -eq 0 ]; then
+            sleep 1
+        fi
+    done
+    return "${status}"
+}
+
 echo "Secret GA full-model learning-rate grid"
 echo "Models: ${model_keys[*]}"
 for model_key in "${model_keys[@]}"; do
@@ -795,8 +919,8 @@ for model_key in "${model_keys[@]}"; do
 done
 echo "Learning rates: ${learning_rates[*]}"
 echo "GPUs: ${gpu_ids[*]}"
-echo "Queued jobs: ${#jobs[@]}"
 if [ "${RUN_UNLEARNING}" = "1" ]; then
+    echo "Queued learning-rate jobs: ${#jobs[@]}"
     echo "Training batch: per_device=${TRAIN_BS}, gradient_accumulation=${GRAD_ACCUM_STEPS}"
     echo "Gradient checkpointing: ${GRADIENT_CHECKPOINTING}"
     echo "Phase: full-model GA unlearning"
@@ -818,6 +942,36 @@ fi
 echo "Output root: ${OUTPUT_ROOT}"
 
 mkdir -p "${OUTPUT_ROOT}/logs"
+
+# The standalone evaluation wrapper uses the same dynamic checkpoint dispatcher
+# as the other evaluation scripts. Training jobs retain learning-rate granularity
+# because all checkpoints for a learning rate are created by that training job.
+if [ "${RUN_UNLEARNING}" = "0" ] && [ "${RUN_EVALUATIONS}" = "1" ]; then
+    status=0
+    if ! build_evaluation_jobs; then
+        status=1
+    fi
+    echo "Queued ${#evaluation_jobs[@]} checkpoint jobs; the next pending epoch goes to the first free GPU."
+
+    for gpu_id in "${gpu_ids[@]}"; do
+        log_file="${OUTPUT_ROOT}/logs/gpu-${gpu_id}.txt"
+        : > "${log_file}"
+        echo "GPU ${gpu_id} log: ${log_file}"
+    done
+
+    if [ "${#evaluation_jobs[@]}" -eq 0 ]; then
+        echo "No checkpoint evaluation jobs were created." >&2
+        status=1
+    elif ! dispatch_evaluation_jobs; then
+        status=1
+    fi
+    if ! write_grid_summary; then
+        echo "Failed to write grid summary." >&2
+        status=1
+    fi
+    exit "${status}"
+fi
+
 pids=()
 for worker_index in "${!gpu_ids[@]}"; do
     gpu_id="${gpu_ids[${worker_index}]}"
