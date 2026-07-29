@@ -12,6 +12,8 @@ LEARNING_RATES="${LEARNING_RATES:-5e-5 1e-5 5e-6 1e-6 5e-7}"
 MODEL_KEYS="${MODEL_KEYS:-qwen2_5_coder_3b}"
 QWEN_SOURCE_REPO="${QWEN_SOURCE_REPO:-dbaysal/qwen2.5coder-3b-learned-checkpoint282-full}"
 LLAMA_SOURCE_REPO="${LLAMA_SOURCE_REPO:-dbaysal/metallama3.2-3b-learned-checkpoint282-full}"
+QWEN_TOKENIZER_REPO="${QWEN_TOKENIZER_REPO:-Qwen/Qwen2.5-Coder-3B}"
+LLAMA_TOKENIZER_REPO="${LLAMA_TOKENIZER_REPO:-meta-llama/Llama-3.2-3B}"
 HUB_NAMESPACE="${HUB_NAMESPACE:-dbaysal}"
 HUB_UPLOAD="${HUB_UPLOAD:-0}"
 
@@ -148,6 +150,14 @@ source_repo_for_model() {
     case "${model_key}" in
         qwen2_5_coder_3b) echo "${QWEN_SOURCE_REPO}" ;;
         meta_llama3_2_3b) echo "${LLAMA_SOURCE_REPO}" ;;
+    esac
+}
+
+tokenizer_repo_for_model() {
+    local model_key="$1"
+    case "${model_key}" in
+        qwen2_5_coder_3b) echo "${QWEN_TOKENIZER_REPO}" ;;
+        meta_llama3_2_3b) echo "${LLAMA_TOKENIZER_REPO}" ;;
     esac
 }
 
@@ -345,6 +355,8 @@ run_job() {
     local model_key="$2"
     local source_repo="$3"
     local learning_rate="$4"
+    local tokenizer_repo
+    tokenizer_repo="$(tokenizer_repo_for_model "${model_key}")"
     local lr_slug="${learning_rate//+/_}"
     local run_root="${OUTPUT_ROOT}/${model_key}/lr-${lr_slug}"
     local model_dir="${run_root}/model"
@@ -366,6 +378,7 @@ run_job() {
     echo
     echo "GPU ${gpu_id}: model=${model_key}, method=ga, full_model=true, learning_rate=${learning_rate}"
     echo "GPU ${gpu_id}: source_full_model=${source_repo}"
+    echo "GPU ${gpu_id}: tokenizer=${tokenizer_repo}"
     echo "GPU ${gpu_id}: output=${run_root}"
     if [ "${HUB_UPLOAD}" = "1" ]; then
         echo "GPU ${gpu_id}: hub_repo=${repo_id}"
@@ -382,7 +395,7 @@ run_job() {
                 "experiment/custom_hf_unlearning/model=${model_key}"
                 experiment/custom_hf_unlearning/method=ga
                 "model.model_args.pretrained_model_name_or_path=${source_repo}"
-                "model.tokenizer_args.pretrained_model_name_or_path=${source_repo}"
+                "model.tokenizer_args.pretrained_model_name_or_path=${tokenizer_repo}"
                 '~model.model_args.peft_name'
                 '~model.model_args.peft_checkpoint_subfolder'
                 "trainer.args.learning_rate=${learning_rate}"
