@@ -75,6 +75,13 @@ class AggregateUuidFilterTests(unittest.TestCase):
             aggregate_filter_model_dir("meta-llama/Llama-3.2-3B"),
             "meta_llama3_2_3b",
         )
+        self.assertEqual(
+            aggregate_filter_model_dir(
+                "/cache/models--dbaysal--secret-unlearning-"
+                "meta_llama3_2_3b-ga-full-lr-2e-5/snapshots/revision/checkpoint-4"
+            ),
+            "meta_llama3_2_3b",
+        )
 
 
 if __name__ == "__main__":
