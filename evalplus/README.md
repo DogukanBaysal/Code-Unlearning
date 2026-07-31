@@ -74,6 +74,66 @@ Want to know more details? Read our papers & materials!
 - **EvalPlus**: [NeurIPS'23 paper](https://openreview.net/forum?id=1qvx610Cu7), [Slides](https://docs.google.com/presentation/d/1eTxzUQG9uHaU13BGhrqm4wH5NmMZiM3nI0ezKlODxKs), [Poster](https://jw-liu.xyz/assets/pdf/EvalPlus_Poster.pdf), [Leaderboard](https://evalplus.github.io/leaderboard.html)
 - **EvalPerf**: [COLM'24 paper](https://openreview.net/forum?id=IBCBMeAhmC), [Poster](https://jw-liu.xyz/assets/pdf/jiawei-colm-evalperf-poster.pdf), [Documentation](./docs/evalperf.md), [Leaderboard](https://evalplus.github.io/evalperf.html)
 
+## Thesis-specific extensions in this fork
+
+This fork adds the functional evaluations used by *Forgetting by Design* while retaining the upstream HumanEval/MBPP/EvalPerf interfaces.
+
+### Added datasets
+
+| CLI dataset | Components |
+| --- | --- |
+| `forgeteval` | Functional tests for the forget-set functions/classes surrounding injected secrets |
+| `utilityeval` | Functional tests for capabilities learned during synthetic fine-tuning |
+| `forget-utility` | ForgetEval + UtilityEval in one generation/evaluation run |
+| `humaneval-forget-utility` | HumanEval + ForgetEval + UtilityEval in one run |
+
+The default custom datasets are loaded from `dbaysal/ForgetEval` and `dbaysal/UtilityEval`. Override them with local JSON, JSONL, or Parquet files without editing code:
+
+```bash
+export FORGETEVAL_OVERRIDE_PATH=/path/to/forgeteval.jsonl
+export UTILITYEVAL_OVERRIDE_PATH=/path/to/utilityeval.jsonl
+```
+
+Rows are normalized to EvalPlus fields and must provide a task ID, prompt, canonical solution, entry point, and either executable `test` code or `base_input` values.
+
+### Evaluate a PEFT checkpoint
+
+After installing this directory with the `peft` extra, run from `evalplus/`:
+
+```bash
+python -m evalplus.evaluate \
+  --model Qwen/Qwen2.5-Coder-3B \
+  --peft-name YOUR_NAMESPACE/YOUR_ADAPTER \
+  --peft-subfolder checkpoint-12 \
+  --dataset humaneval-forget-utility \
+  --backend hf \
+  --force-base-prompt \
+  --defer-sanitize \
+  --n-samples 10 \
+  --temperature 0.8 \
+  --top-p 0.95 \
+  --dtype bfloat16
+```
+
+`--defer-sanitize` batches generation before sanitizing and executing the samples. A greedy baseline instead uses `--greedy`, which forces one sample and temperature zero. Combined-result JSON files contain component-specific pass@1, pass@ceil(k/2), and pass@k values.
+
+The repository-level [`../scripts/run_adapter_eval_suite.py`](../scripts/README.md) orchestrates this command together with suffix reconstruction and is the recommended interface for thesis adapters.
+
+### Baseline filtering
+
+The thesis reports functional results only for tasks solved by the learned baseline in at least one of ten attempts. Filter a raw result without modifying it:
+
+```bash
+python tools/filter_baseline_failed_results.py \
+  evalplus_results/humaneval-forget-utility/RESULT.eval_results.json \
+  --filter-csv evalplus/baseline_failed_test_ids.csv
+```
+
+The default output is written beside the input with `.filtered.eval_results.json`. Filtering is applied only to ForgetEval and UtilityEval components; HumanEval remains an unfiltered general-utility benchmark.
+
+> [!CAUTION]
+> EvalPlus executes generated Python. Use the Docker workflow below or another isolated executor when models, datasets, or samples are not fully trusted.
+
 
 ## 🔥 Quick Start
 
