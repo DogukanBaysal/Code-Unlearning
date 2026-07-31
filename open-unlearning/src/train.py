@@ -302,8 +302,8 @@ def main(cfg: DictConfig):
             task_name=cfg.task_name,
         ):
             trainer.train()
-            trainer.save_state()
-            trainer.save_model(trainer_args.output_dir)
+        trainer.save_state()
+        trainer.save_model(trainer_args.output_dir)
         push_artifacts_to_hub(
             cfg.get("hub_adapter", None),
             trainer=trainer,

@@ -59,4 +59,3 @@ OUTPUT_ROOT/
 └── evalplus/<dataset>/[pass-K/]
 ```
 
-The suffix evaluator skips a dataset whose expected output files are already complete. EvalPlus also resumes generation from existing samples. Use a new output root when changing generation settings to avoid mixing configurations.
