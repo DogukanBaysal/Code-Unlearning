@@ -162,6 +162,22 @@ bash scripts/run_code_unit_unlearning.sh
 
 Review and edit their `repo_id` construction before use. For local-only work, prefer the single command above with `hub_adapter.enabled=false`.
 
+To rerun every secret-unlearning combination under Hub model names prefixed with
+`new-`, use:
+
+```bash
+bash scripts/run_new_secret_unlearning.sh
+```
+
+This produces repositories such as
+`dbaysal/new-secret-unlearning-qwen2_5_coder_3b-ga`. Preview all 18 commands or
+change the namespace/prefix with environment variables:
+
+```bash
+DRY_RUN=1 HUB_NAMESPACE=dbaysal MODEL_NAME_PREFIX=new- \
+  bash scripts/run_new_secret_unlearning.sh
+```
+
 From the repository root, the more configurable ordering runner supports dry-run and namespace controls:
 
 ```bash
