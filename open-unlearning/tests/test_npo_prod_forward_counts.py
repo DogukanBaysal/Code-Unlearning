@@ -91,6 +91,37 @@ def model_batch():
     }
 
 
+@pytest.mark.parametrize(
+    ("retain_loss_type", "expected_reference_calls"),
+    [("NLL", 0), ("KL", 1)],
+)
+def test_grad_diff_retain_batch_uses_one_student_forward(
+    unlearn_modules,
+    retain_loss_type,
+    expected_reference_calls,
+):
+    trainer = unlearn_modules.grad_diff.GradDiff.__new__(
+        unlearn_modules.grad_diff.GradDiff
+    )
+    trainer.alpha = 1.0
+    trainer.gamma = 1.0
+    trainer.retain_loss_type = retain_loss_type
+    trainer.ref_model = CountingModel(offset=0.5, trainable=False)
+    student = CountingModel()
+    trainer.model = student
+
+    loss, outputs = trainer.compute_loss(
+        student,
+        {"retain": model_batch()},
+        return_outputs=True,
+    )
+
+    assert student.calls == 1
+    assert trainer.ref_model.calls == expected_reference_calls
+    assert torch.isfinite(loss)
+    assert outputs is not None
+
+
 def test_npo_skips_zero_weight_retain_forward(unlearn_modules, monkeypatch):
     trainer = unlearn_modules.npo.NPO.__new__(unlearn_modules.npo.NPO)
     trainer.alpha = 0.0

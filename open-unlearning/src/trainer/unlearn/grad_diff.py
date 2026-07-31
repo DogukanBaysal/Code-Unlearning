@@ -142,6 +142,7 @@ class GradDiff(UnlearnTrainer):
     ):
         loss = 0.0
         outputs = None
+        retain_outputs = None
 
         if "forget" in inputs:
             forget_inputs = self._model_inputs(inputs["forget"])
@@ -150,14 +151,18 @@ class GradDiff(UnlearnTrainer):
             )
             loss = loss + self.gamma * forget_loss
 
-        if "retain" in inputs:
+        if "retain" in inputs and self.alpha != 0.0:
             retain_inputs = self._model_inputs(inputs["retain"])
-            retain_loss = self.compute_retain_loss(
-                model=model, retain_inputs=retain_inputs
+            retain_loss, retain_outputs = self.compute_retain_loss(
+                model=model,
+                retain_inputs=retain_inputs,
+                return_outputs=True,
             )
             loss = loss + self.alpha * retain_loss
 
         if outputs is None:
-            outputs = model(**retain_inputs)
+            outputs = retain_outputs
+        if outputs is None:
+            raise ValueError("GradDiff received a batch without an active loss term")
 
         return (loss, outputs) if return_outputs else loss
