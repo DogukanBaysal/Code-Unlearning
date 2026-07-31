@@ -64,5 +64,7 @@ trainer:
     gamma: 1.0
     alpha: 1.0
     retain_loss_type: KL
+    reference_model_args:
+      load_in_8bit: true
 
 mode: unlearn

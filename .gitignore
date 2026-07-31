@@ -1,5 +1,33 @@
+# Operating-system and editor metadata
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+
+# Python caches, environments, and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Local credentials and environment overrides
+.env
+.env.*
+!.env.example
+
+# Experiment caches and generated artifacts
 *.npy
-misc
-Mutation
-.pyc
+misc/
+Mutation/
 Results/
+wandb/
+saves/
+outputs/
