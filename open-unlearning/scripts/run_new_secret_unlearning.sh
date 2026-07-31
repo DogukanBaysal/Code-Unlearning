@@ -9,6 +9,7 @@ cd "${REPO_ROOT}"
 
 HUB_NAMESPACE="${HUB_NAMESPACE:-dbaysal}"
 MODEL_NAME_PREFIX="${MODEL_NAME_PREFIX:-new-}"
+HUB_ADAPTER_ENABLED="${HUB_ADAPTER_ENABLED:-true}"
 DRY_RUN="${DRY_RUN:-0}"
 
 models=(
@@ -46,15 +47,20 @@ for model in "${models[@]}"; do
     for method in "${methods[@]}"; do
         repo_name="${MODEL_NAME_PREFIX}secret-unlearning-${model}-${method}"
         repo_id="${HUB_NAMESPACE}/${repo_name}"
+        task_name_prefix="${MODEL_NAME_PREFIX//[^[:alnum:]_]/_}"
+        task_name="custom_hf_${task_name_prefix}secret_${model}_${method}"
 
         echo "Running secret unlearning: model=${model}, method=${method}"
+        echo "Task name: ${task_name}"
         echo "Hub repo: ${repo_id}"
 
         run_command python src/train.py \
             experiment=custom_hf_unlearning/secret \
             experiment/custom_hf_unlearning/model="${model}" \
             experiment/custom_hf_unlearning/method="${method}" \
-            hub_adapter.enabled=true \
-            hub_adapter.repo_id="${repo_id}"
+            task_name="${task_name}" \
+            hub_adapter.enabled="${HUB_ADAPTER_ENABLED}" \
+            hub_adapter.repo_id="${repo_id}" \
+            "$@"
     done
 done

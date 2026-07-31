@@ -178,6 +178,30 @@ DRY_RUN=1 HUB_NAMESPACE=dbaysal MODEL_NAME_PREFIX=new- \
   bash scripts/run_new_secret_unlearning.sh
 ```
 
+To rerun every ordering-aware secret method for both models across retain-first,
+forget-first, and random ordering with `retain-full`, use:
+
+```bash
+bash scripts/run_new_secret_ordered_unlearning.sh
+```
+
+The ordered variants use `dbaysal/retain-half`; the random variant uses
+`dbaysal/retain-full`. The matrix covers `ga_gd`, `ga_kl`, `npo_gd`, `npo_kl`,
+`prod_gd`, and `prod_kl`, for 36 jobs in total. Hub names are prefixed with
+`new-`, for example
+`dbaysal/new-secret-unlearning-qwen2_5_coder_3b-npo_kl-retain-first`. The same
+`DRY_RUN`, `HUB_NAMESPACE`, and `MODEL_NAME_PREFIX` controls are supported.
+
+Run the 18 standard jobs and then all 36 ordering jobs back to back with:
+
+```bash
+bash scripts/run_new_secret_full_suite.sh
+```
+
+The second phase starts only after the first phase succeeds. This combined
+entry point supports the same environment variables and optional Hydra
+overrides as the two underlying scripts.
+
 From the repository root, the more configurable ordering runner supports dry-run and namespace controls:
 
 ```bash
