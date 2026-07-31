@@ -109,20 +109,21 @@ class GradDiff(UnlearnTrainer):
 
         return ref_model
 
-    def compute_retain_loss(self, model, retain_inputs):
-        retain_outputs = model(**retain_inputs)
-        retain_loss = 0.0
+    def compute_retain_loss(self, model, retain_inputs, return_outputs=False):
         if self.retain_loss_type == "NLL":
-            retain_loss += retain_outputs.loss
+            retain_outputs = model(**retain_inputs)
+            retain_loss = retain_outputs.loss
         elif self.retain_loss_type == "KL":
             kl_loss, retain_outputs = compute_kl_divergence(
-                self.model, self.ref_model, retain_inputs
+                model, self.ref_model, retain_inputs
             )
-            retain_loss += kl_loss
+            retain_loss = kl_loss
         else:
             raise NotImplementedError(
                 f"{self.retain_loss_type} not implemented for retain set"
             )
+        if return_outputs:
+            return retain_loss, retain_outputs
         return retain_loss
 
     def _model_inputs(self, inputs):

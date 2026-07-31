@@ -100,7 +100,6 @@ CUDA_VISIBLE_DEVICES=0 python src/train.py \
   experiment=custom_hf_unlearning/secret \
   experiment/custom_hf_unlearning/model=qwen2_5_coder_3b \
   experiment/custom_hf_unlearning/method=npo_kl \
-  model.model_args.load_ref_in_8bit=true \
   hub_adapter.enabled=false
 cd ..
 ```

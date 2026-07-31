@@ -194,16 +194,20 @@ class PROD(GradDiff):
             )
             loss = loss + self.gamma * forget_loss
 
-        if "retain" in inputs:
+        retain_outputs = None
+        if "retain" in inputs and self.alpha != 0.0:
             retain_inputs = self._model_inputs(inputs["retain"])
-            retain_loss = self.compute_retain_loss(
+            retain_loss, retain_outputs = self.compute_retain_loss(
                 model=model,
                 retain_inputs=retain_inputs,
+                return_outputs=True,
             )
             loss = loss + self.alpha * retain_loss
 
         if outputs is None:
-            outputs = model(**retain_inputs)
+            outputs = retain_outputs
+        if outputs is None:
+            raise ValueError("PROD received a batch without an active loss term")
         return (loss, outputs) if return_outputs else loss
 
 

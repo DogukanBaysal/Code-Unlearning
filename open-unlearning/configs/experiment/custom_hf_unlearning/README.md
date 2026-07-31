@@ -54,7 +54,6 @@ CUDA_VISIBLE_DEVICES=0 python src/train.py \
   experiment=custom_hf_unlearning/secret \
   experiment/custom_hf_unlearning/model=qwen2_5_coder_3b \
   experiment/custom_hf_unlearning/method=npo_kl \
-  model.model_args.load_ref_in_8bit=true \
   hub_adapter.enabled=false
 ```
 
@@ -66,7 +65,6 @@ saves/unlearn/custom_hf_<task>_<model>_<method>/
 
 The folder includes the final adapter, one checkpoint per epoch, `run_config.yaml`, trainer state, logs, `.hydra/` settings, and `emissions/emissions.csv` when CodeCarbon is enabled.
 
-The thesis specifies an 8-bit frozen oracle. Most oracle-based method configs set this through `reference_model_args`; the composable `npo_kl` file currently does not, so the command above supplies `model.model_args.load_ref_in_8bit=true`. Without that override, NPO+KL creates an unquantized frozen copy of the learned model.
 
 Preview the fully composed config without starting training:
 
@@ -75,7 +73,6 @@ python src/train.py \
   experiment=custom_hf_unlearning/secret \
   experiment/custom_hf_unlearning/model=qwen2_5_coder_3b \
   experiment/custom_hf_unlearning/method=npo_kl \
-  model.model_args.load_ref_in_8bit=true \
   --cfg job --resolve
 ```
 
