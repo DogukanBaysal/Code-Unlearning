@@ -11,6 +11,7 @@ TOP_P="${TOP_P:-0.95}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-2056}"
 SUFFIX_BS="${SUFFIX_BS:-6}"
 EVALPLUS_BS="${EVALPLUS_BS:-64}"
+EVALPLUS_PASS_K="${EVALPLUS_PASS_K:-${PASS_K}}"
 EVALPLUS_DATASET="${EVALPLUS_DATASET:-humaneval-forget-utility}"
 DTYPE="${DTYPE:-bfloat16}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-${REPO_ROOT}/Results/ordered_secret_eval_suite}"
@@ -147,8 +148,12 @@ evaluation_outputs_complete() {
         done
     done
 
+    local evalplus_result_dir="${output_root}/evalplus/${EVALPLUS_DATASET}"
+    if [ "${EVALPLUS_PASS_K}" -gt 1 ]; then
+        evalplus_result_dir="${evalplus_result_dir}/pass-${EVALPLUS_PASS_K}"
+    fi
     local evalplus_result
-    evalplus_result="${output_root}/evalplus/${EVALPLUS_DATASET}/${run_slug}.eval_results.json"
+    evalplus_result="${evalplus_result_dir}/${run_slug}.eval_results.json"
     [ -s "${evalplus_result}" ]
 }
 
@@ -215,6 +220,7 @@ run_eval_job() {
         --suffix-bs "${SUFFIX_BS}" \
         --evalplus-dataset "${EVALPLUS_DATASET}" \
         --evalplus-bs "${EVALPLUS_BS}" \
+        --evalplus-pass-k "${EVALPLUS_PASS_K}" \
         --dtype "${DTYPE}" \
         --continue-on-error \
         "$@"
@@ -257,7 +263,7 @@ launch_job() {
 echo "Detected ${#gpu_ids[@]} GPU worker(s): ${gpu_ids[*]}"
 echo "Queued ${#jobs[@]} checkpoint jobs; the next pending epoch goes to the first free GPU."
 echo "UnlearningEvaluation: pass@${PASS_K}, batch_size=${SUFFIX_BS}, temperature=${TEMPERATURE}, top_p=${TOP_P}"
-echo "EvalPlus: dataset=${EVALPLUS_DATASET}, batch_size=${EVALPLUS_BS}"
+echo "EvalPlus: dataset=${EVALPLUS_DATASET}, pass@${EVALPLUS_PASS_K}, batch_size=${EVALPLUS_BS}"
 echo "Skip complete destinations: ${SKIP_EXISTING}"
 
 log_dir="${OUTPUT_ROOT}/logs"

@@ -116,7 +116,7 @@ class HuggingFaceDecoder(DecoderBase):
             input_tokens = input_tokens.to(self.device)
         kwargs = {}
         if do_sample:
-            kwargs["top_p"] = 0.95
+            kwargs["top_p"] = self.top_p
             kwargs["temperature"] = self.temperature
 
         outputs = self.model.generate(
@@ -158,9 +158,9 @@ class HuggingFaceDecoder(DecoderBase):
             generation_inputs["position_ids"] = position_ids
         kwargs = {}
         if do_sample:
-            kwargs["top_p"] = 0.95
+            kwargs["top_p"] = self.top_p
             kwargs["temperature"] = self.temperature
-        num_return_sequences = min(self.batch_size, num_samples)
+        num_return_sequences = num_samples
 
         outputs = self.model.generate(
             **generation_inputs,

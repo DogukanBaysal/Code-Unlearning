@@ -8,6 +8,35 @@ This project evaluates a Hugging Face causal language model on a Hugging Face da
 4. Scoring the generated suffix against the target suffix.
 5. Writing inspectable row-level JSONL logs and aggregate JSON results.
 
+## Thesis workflow
+
+The thesis uses this evaluator for three reconstruction views:
+
+| Label | Dataset | Prefix / suffix | Mode and score |
+| --- | --- | --- | --- |
+| Forget (secret) | `dbaysal/forget` | `secret_prefix` / `secret_suffix` | `secret`, chrF |
+| Forget (code unit) | `dbaysal/forget` | `prefix` / `suffix` | `code`, BLEU |
+| Retain | `dbaysal/retain-half` | `prefix` / `suffix` | `code`, BLEU |
+| Held-out / approximate | `dbaysal/approximate` | `prefix` / `suffix` | `code`, BLEU |
+
+The easiest way to evaluate all views plus functional correctness is the repository-level driver:
+
+```bash
+python scripts/run_adapter_eval_suite.py \
+  --model Qwen/Qwen2.5-Coder-3B \
+  --peft-names YOUR_NAMESPACE/YOUR_ADAPTER \
+  --discover-checkpoints \
+  --all-checkpoints \
+  --output-root Results/example \
+  --aggregate-filter-csv UnlearningEvaluation/non_exact_matches.csv \
+  --pass-k 10 \
+  --evalplus-pass-k 10 \
+  --temperature 0.8 \
+  --top-p 0.95
+```
+
+Run that command from the repository root. The driver writes one config containing a `datasets:` list, runs each dataset independently, and preserves completed outputs when resumed. See [`../scripts/README.md`](../scripts/README.md) for checkpoint discovery, code-unit overrides, output layout, and baseline filtering.
+
 ## Install
 
 Use a virtual environment, then install the dependencies:
@@ -65,7 +94,7 @@ The script loads `tokenizer_name` when provided; otherwise it uses `model_name`.
 
 ## Outputs
 
-The configured `output_dir` receives three files:
+The configured `output_dir` receives up to four files:
 
 - `row_results.jsonl`
 - `all_results.jsonl`

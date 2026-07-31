@@ -1,4 +1,6 @@
-from evalplus.sanitize import code_extract, sanitize
+import json
+
+from evalplus.sanitize import code_extract, sanitize, sanitize_samples
 
 
 def test_code_extract():
@@ -66,6 +68,36 @@ def f(x):
 def g(x):
     return cos(f(x))"""
     )
+
+
+def test_parallel_sanitization_matches_sequential(tmp_path, monkeypatch):
+    source = tmp_path / "samples.jsonl"
+    sequential_output = tmp_path / "sequential.jsonl"
+    parallel_output = tmp_path / "parallel.jsonl"
+    samples = [
+        {"task_id": "Task/0", "solution": "def f():\n    return 1\ntrailing text"},
+        {"task_id": "Task/0", "solution": "def f():\n    return 2"},
+    ]
+    source.write_text(
+        "".join(json.dumps(sample) + "\n" for sample in samples),
+        encoding="utf-8",
+    )
+    problems = {"Task/0": {"entry_point": "f"}}
+
+    monkeypatch.setenv("EVALPLUS_SANITIZE_WORKERS", "1")
+    sanitize_samples(
+        str(source),
+        target_path=str(sequential_output),
+        problems=problems,
+    )
+    monkeypatch.setenv("EVALPLUS_SANITIZE_WORKERS", "2")
+    sanitize_samples(
+        str(source),
+        target_path=str(parallel_output),
+        problems=problems,
+    )
+
+    assert parallel_output.read_bytes() == sequential_output.read_bytes()
 
 
 def test_sanitize_class():

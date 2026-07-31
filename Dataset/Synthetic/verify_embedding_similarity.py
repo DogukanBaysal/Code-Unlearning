@@ -51,7 +51,6 @@ from typing import Iterable
 import numpy as np
 from huggingface_hub import login
 
-login(token="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")
 
 os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "1")
 os.environ.setdefault("TORCH_USE_CUDA_DSA", "1")

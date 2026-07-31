@@ -85,7 +85,10 @@ def aggregate_filter_model_dir(model_name: str) -> str:
     normalized = model_name.lower().replace("_", "-")
     if "qwen2.5-coder-3b" in normalized or "qwen2-5-coder-3b" in normalized:
         return "qwen2_5_coder_3b"
-    if "llama-3.2-3b" in normalized or "llama3.2-3b" in normalized:
+    if any(
+        alias in normalized
+        for alias in ("llama-3.2-3b", "llama3.2-3b", "llama3-2-3b")
+    ):
         return "meta_llama3_2_3b"
     raise ValueError(
         f"Could not map model {model_name!r} to a model_dir in the aggregate filter CSV"

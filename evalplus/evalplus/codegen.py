@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 
 from evalplus.data import (
     COMBINED_EVAL_DATASET,
+    FORGET_UTILITY_EVAL_DATASET,
     get_evalperf_data,
     get_combined_eval,
     get_forget_eval,
@@ -125,27 +126,57 @@ def codegen(
 
     backend_type: str = type(model).__name__
 
-    if n_samples == 1:
-        pending = []
+    pending = []
 
-        def flush_pending(p):
-            if not pending:
-                return
+    def flush_pending(p):
+        if not pending:
+            return
 
-            p.console.print(f"Codegen batch: {len(pending)} tasks @ {model}")
-            prompts = [task["prompt"].strip() + "\n" for _, task in pending]
-            batch_outputs = model.codegen_batch(
-                prompts,
-                do_sample=not greedy,
-                num_samples=1,
-            )
-            assert len(batch_outputs) == len(pending)
+        prompts = [task["prompt"].strip() + "\n" for _, task, _ in pending]
+        samples_needed = [n_samples - existing for _, _, existing in pending]
+        collected_outputs = [[] for _ in pending]
+        p.console.print(
+            f"Codegen batch: {len(pending)} tasks x up to "
+            f"{max(samples_needed)} samples @ {model}"
+        )
 
-            for (task_id, task), prompt, outputs in zip(pending, prompts, batch_outputs):
-                assert outputs, "No outputs from model!"
-                solution = (
-                    prompt + outputs[0] if model.is_direct_completion() else outputs[0]
+        # Most batched providers return every requested sample in one call. The
+        # loop also supports providers that cap the number returned per call.
+        while any(
+            len(outputs) < needed
+            for outputs, needed in zip(collected_outputs, samples_needed)
+        ):
+            active_indices = [
+                index
+                for index, (outputs, needed) in enumerate(
+                    zip(collected_outputs, samples_needed)
                 )
+                if len(outputs) < needed
+            ]
+            request_count = max(
+                samples_needed[index] - len(collected_outputs[index])
+                for index in active_indices
+            )
+            batch_outputs = model.codegen_batch(
+                [prompts[index] for index in active_indices],
+                do_sample=not greedy,
+                num_samples=request_count,
+            )
+            assert len(batch_outputs) == len(active_indices)
+
+            made_progress = False
+            for index, outputs in zip(active_indices, batch_outputs):
+                remaining = samples_needed[index] - len(collected_outputs[index])
+                if outputs:
+                    collected_outputs[index].extend(outputs[:remaining])
+                    made_progress = True
+            assert made_progress, "No outputs from model!"
+
+        for (task_id, task, existing), prompt, outputs in zip(
+            pending, prompts, collected_outputs
+        ):
+            for offset, impl in enumerate(outputs):
+                solution = prompt + impl if model.is_direct_completion() else impl
                 output_solution = (
                     sanitize(solution, entrypoint=task["entry_point"])
                     if sanitize_output
@@ -157,28 +188,10 @@ def codegen(
                     task_id=task_id,
                     solution=solution,
                     output_solution=output_solution,
-                    sample_idx=0,
+                    sample_idx=existing + offset,
                 )
 
-            pending.clear()
-
-        with progress(backend_type) as p:
-            for task_id, task in p.track(dataset.items()):
-                if not in_id_range(task_id, id_range):
-                    p.console.print(f"Skipping {task_id} as it is not in {id_range}")
-                    continue
-
-                prepare_folder_task(task_id)
-                if resume and task2nexist.get(task_id, 0) >= n_samples:
-                    p.console.print(f"Codegen: {task_id} @ {model} (cached)")
-                    continue
-
-                pending.append((task_id, task))
-                if len(pending) >= max(1, model.batch_size):
-                    flush_pending(p)
-
-            flush_pending(p)
-        return
+        pending.clear()
 
     with progress(backend_type) as p:
         for task_id, task in p.track(dataset.items()):
@@ -187,40 +200,20 @@ def codegen(
                 continue
 
             prepare_folder_task(task_id)
+            existing = task2nexist.get(task_id, 0) if resume else 0
+            if existing >= n_samples:
+                p.console.print(f"Codegen: {task_id} @ {model} (cached)")
+                continue
 
-            n_more_samples = n_samples
-            log = f"Codegen: {task_id} @ {model}"
-            if resume and task2nexist.get(task_id, 0) > 0:
-                log += f" (resuming from {task2nexist[task_id]})"
-                n_more_samples -= task2nexist[task_id]
-
-            p.console.print(log)
-
-            sidx = n_samples - n_more_samples
-            while sidx < n_samples:
-                prompt = task["prompt"].strip() + "\n"
-                outputs = model.codegen(
-                    prompt,
-                    do_sample=not greedy,
-                    num_samples=n_samples - sidx,
+            if existing:
+                p.console.print(
+                    f"Codegen: {task_id} @ {model} (resuming from {existing})"
                 )
-                assert outputs, "No outputs from model!"
-                for impl in outputs:
-                    solution = prompt + impl if model.is_direct_completion() else impl
-                    output_solution = (
-                        sanitize(solution, entrypoint=task["entry_point"])
-                        if sanitize_output
-                        else solution
-                    )
-                    write_codegen_output(
-                        target_path=target_path,
-                        raw_target_path=raw_target_path,
-                        task_id=task_id,
-                        solution=solution,
-                        output_solution=output_solution,
-                        sample_idx=sidx,
-                    )
-                    sidx += 1
+            pending.append((task_id, task, existing))
+            if len(pending) >= max(1, model.batch_size):
+                flush_pending(p)
+
+        flush_pending(p)
 
 
 def run_codegen(
@@ -230,6 +223,7 @@ def run_codegen(
     bs: Optional[int] = None,
     n_samples: int = 1,
     temperature: float = 0.0,
+    top_p: float = 0.95,
     num_ctx: Optional[int] = None,
     resume: bool = True,
     greedy: bool = False,
@@ -253,6 +247,7 @@ def run_codegen(
     gptqmodel_backend: str = "auto",  # For GPTQModel
     gguf_file: Optional[str] = None,
     defer_sanitize: bool = False,
+    generate_only: bool = False,
     **kwargs,
 ):
     dataset = dataset.lower()
@@ -268,6 +263,7 @@ def run_codegen(
         "forgeteval",
         "utilityeval",
         COMBINED_EVAL_DATASET,
+        FORGET_UTILITY_EVAL_DATASET,
     ], f"Invalid dataset {dataset}"
     assert evalperf_type is None or evalperf_type in [
         "instruct",
@@ -277,6 +273,8 @@ def run_codegen(
 
     # Make dir for codes generated by each model
     identifier = model.strip("./").replace("/", "--") + f"_{backend}_temp_{temperature}"
+    if temperature > 0:
+        identifier += f"_top_p_{top_p}"
     if peft_name is not None:
         identifier += f"_peft_{peft_name.strip('./').replace('/', '--')}"
         if peft_subfolder:
@@ -302,17 +300,19 @@ def run_codegen(
         dataset_dict = get_forget_eval()
     elif dataset == "utilityeval":
         dataset_dict = get_utility_eval()
-    elif dataset == COMBINED_EVAL_DATASET:
-        dataset_dict = get_combined_eval(version=version)
+    elif is_combined_eval_dataset(dataset):
+        dataset_dict = get_combined_eval(version=version, dataset=dataset)
     else:
         raise ValueError(f"Invalid dataset {dataset}")
 
-    generation_path = get_raw_target_path(target_path) if defer_sanitize else target_path
+    raw_generation = defer_sanitize or generate_only
+    generation_path = get_raw_target_path(target_path) if raw_generation else target_path
+    completion_path = generation_path if generate_only else target_path
 
     all_tasks_complete = False
-    if jsonl_fmt and os.path.isfile(target_path):
+    if jsonl_fmt and os.path.isfile(completion_path):
         task_counts = {}
-        with open(target_path, "r") as f:
+        with open(completion_path, "r") as f:
             for line in f:
                 if not line.strip():
                     continue
@@ -326,11 +326,12 @@ def run_codegen(
             )
 
     if all_tasks_complete:
-        print("All samples are already cached. Skipping codegen.")
-        return target_path
+        cache_label = "raw samples" if generate_only else "samples"
+        print(f"All {cache_label} are already cached. Skipping codegen.")
+        return completion_path
 
     generation_complete = False
-    if defer_sanitize and jsonl_fmt and os.path.isfile(generation_path):
+    if raw_generation and jsonl_fmt and os.path.isfile(generation_path):
         task_counts = {}
         with open(generation_path, "r") as f:
             for line in f:
@@ -396,6 +397,7 @@ def run_codegen(
             backend=backend,
             batch_size=bs,
             temperature=temperature,
+            top_p=top_p,
             num_ctx=num_ctx,
             force_base_prompt=force_base_prompt,
             dataset=dataset,
@@ -425,7 +427,7 @@ def run_codegen(
             n_samples=n_samples,
             resume=resume,
             id_range=id_range,
-            sanitize_output=not defer_sanitize,
+            sanitize_output=not raw_generation,
         )
 
         # force shutdown the model runner
@@ -433,7 +435,7 @@ def run_codegen(
 
         gc.collect()
 
-    if defer_sanitize:
+    if defer_sanitize and not generate_only:
         sanitize_samples(
             samples=generation_path,
             target_path=target_path,
@@ -441,7 +443,7 @@ def run_codegen(
             problems=dataset_dict,
         )
 
-    return target_path
+    return generation_path if generate_only else target_path
 
 
 def main():
