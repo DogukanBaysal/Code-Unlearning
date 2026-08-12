@@ -4,3 +4,4 @@ Mutation
 .pyc
 Results/
 experiments/
+*cache*

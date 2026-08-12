@@ -177,7 +177,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-new-tokens",
         type=int,
-        default=2056,
+        default=2048,
         help="Max new tokens for both suffix evaluations.",
     )
     parser.add_argument(
