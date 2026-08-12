@@ -63,8 +63,8 @@ for model_key in "${model_keys[@]}"; do
         experiment=custom_hf_unlearning/code_unit \
         experiment/custom_hf_unlearning/model="${model_key}" \
         experiment/custom_hf_unlearning/method=npo_kl \
-        trainer.args.per_device_train_batch_size=4 \
-        trainer.args.gradient_accumulation_steps=8 \
+        trainer.args.per_device_train_batch_size=2 \
+        trainer.args.gradient_accumulation_steps=16 \
         task_name="${task_name}" \
         hub_adapter.enabled="${HUB_ADAPTER_ENABLED}" \
         hub_adapter.repo_id="${repo_id}" \
