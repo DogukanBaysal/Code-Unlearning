@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Train and upload new- prefixed Code-unit NPO+KL LoRA adapters for both models.
+# Code-unit sequences use the task-specific batch configuration: per-device
+# batch size 4 with 8 accumulation steps (effective batch size 32 per GPU).
 #
 # The output repository IDs are also the Code-unit adapter IDs evaluated by
 # run_new_secret_npo_kl_eval_suite.sh:
@@ -61,6 +63,8 @@ for model_key in "${model_keys[@]}"; do
         experiment=custom_hf_unlearning/code_unit \
         experiment/custom_hf_unlearning/model="${model_key}" \
         experiment/custom_hf_unlearning/method=npo_kl \
+        trainer.args.per_device_train_batch_size=4 \
+        trainer.args.gradient_accumulation_steps=8 \
         task_name="${task_name}" \
         hub_adapter.enabled="${HUB_ADAPTER_ENABLED}" \
         hub_adapter.repo_id="${repo_id}" \
