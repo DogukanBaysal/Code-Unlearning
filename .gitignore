@@ -1,7 +1,10 @@
 *.npy
 misc
 Mutation
-.pyc
+*.py[cod]
+__pycache__/
+.venv/
+.DS_Store
 Results/
 experiments/
 *cache*

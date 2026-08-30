@@ -55,25 +55,65 @@ The final synthetic corpus contains 600 Python code units, divided equally betwe
 The forget split contains 50 API keys, 50 passwords, and 50 email addresses, balanced across simple, moderate, and complex code. See [Dataset/README.md](./Dataset/README.md) for dataset IDs, schemas, and curation tools.
 
 
-## Repository guide
+## Repository architecture
 
-| Path | Contents | Documentation |
-| --- | --- | --- |
-| `Dataset/` | Synthetic-data validation, similarity audits, mutation testing, and an earlier KodCode exploration | [Dataset guide](./Dataset/README.md) |
-| `Fine-tuning/` | Axolotl LoRA fine-tuning configuration | [Fine-tuning guide](./Fine-tuning/README.md) |
-| `open-unlearning/` | Modified OpenUnlearning framework, thesis methods, ordering logic, and Hydra configs | [Thesis config guide](./open-unlearning/configs/experiment/custom_hf_unlearning/README.md) · [Upstream framework guide](./open-unlearning/README.md) |
-| `UnlearningEvaluation/` | Prefix/suffix reconstruction evaluation using chrF or BLEU | [Suffix evaluation guide](./UnlearningEvaluation/README.md) |
-| `evalplus/` | Modified EvalPlus with ForgetEval, UtilityEval, combined suites, PEFT checkpoints, and pass@k | [EvalPlus guide](./evalplus/README.md) |
-| `scripts/` | Multi-checkpoint, multi-model, filtering, ordering, and full-parameter experiment runners | [Script guide](./scripts/README.md) |
+This is the top-level orchestration repository. It owns the shared datasets,
+fine-tuning configuration, and experiment drivers, and pins the exact compatible
+revision of each independently versioned codebase as a Git submodule.
+
+| Path | Type | Contents | Documentation |
+| --- | --- | --- | --- |
+| `open-unlearning/` | Submodule | Modified OpenUnlearning framework, thesis methods, ordering logic, and Hydra configs | [Thesis config guide](./open-unlearning/configs/experiment/custom_hf_unlearning/README.md) · [Framework guide](./open-unlearning/README.md) |
+| `evalplus/` | Submodule | Modified EvalPlus with ForgetEval, UtilityEval, combined suites, PEFT checkpoints, and pass@k | [EvalPlus guide](./evalplus/README.md) |
+| `UnlearningEvaluation/` | Submodule | Prefix/suffix reconstruction evaluation using chrF or BLEU | [Suffix evaluation guide](./UnlearningEvaluation/README.md) |
+| `scripts/` | Top level | Multi-checkpoint, multi-model, filtering, ordering, and full-parameter experiment runners | [Script guide](./scripts/README.md) |
+| `Dataset/` | Top level | Synthetic-data validation, similarity audits, mutation testing, and an earlier KodCode exploration | [Dataset guide](./Dataset/README.md) |
+| `Fine-tuning/` | Top level | Axolotl LoRA fine-tuning configuration | [Fine-tuning guide](./Fine-tuning/README.md) |
+
+The relative submodule URLs assume that all four repositories live beside one
+another under the same Git hosting account. The top-level repository records a
+specific child commit, making experiment environments reproducible.
 
 ## Quick start
 
-### 1. Prerequisites
+### 1. Clone all repositories
+
+For a new checkout, clone the top-level repository and its three submodules together:
+
+```bash
+git clone --recurse-submodules https://github.com/DogukanBaysal/Code-Unlearning.git
+cd Code-Unlearning
+```
+
+If the top-level repository is already cloned, populate or repair its submodules with:
+
+```bash
+git submodule sync --recursive
+git submodule update --init --recursive
+```
+
+### 2. Prerequisites
 
 The original experiments used Linux, Python 3.11, CUDA, and a single NVIDIA A100 80 GB per training run. Evaluation executes model-generated Python code, so EvalPlus should be run in an isolated environment or container when evaluating untrusted models.
 
 
-### 2. Install the experiment stack
+### 3. Install the experiment stack
+
+The setup helper creates `.venv` and installs all three child projects into it:
+
+```bash
+bash scripts/setup_environment.sh
+source .venv/bin/activate
+```
+
+On a compatible Linux/CUDA host, include the optional optimized attention package:
+
+```bash
+bash scripts/setup_environment.sh --with-flash-attn
+```
+
+To use a different interpreter or environment location, pass `--python` or `--venv`.
+The equivalent manual installation is:
 
 
 ```bash
@@ -90,7 +130,7 @@ python -m pip install --no-build-isolation flash-attn==2.6.3
 
 Fine-tuning additionally requires an `axolotl` executable; its setup and use are documented in [Fine-tuning/README.md](./Fine-tuning/README.md).
 
-### 3. Run one unlearning experiment
+### 4. Run one unlearning experiment
 
 The following runs the thesis NPO+KL secret configuration on Qwen:
 
@@ -108,7 +148,7 @@ Outputs are written below `open-unlearning/saves/unlearn/<task_name>/`, includin
 
 Change `secret` to `code_unit`, change the model group to `meta_llama3_2_3b`, or select one of `ga`, `npo`, `prod`, `ga_gd`, `ga_kl`, `npo_gd`, `npo_kl`, `prod_gd`, and `prod_kl`. See the [custom config guide](./open-unlearning/configs/experiment/custom_hf_unlearning/README.md) for dataset overrides, ordered objectives, full-retain runs, and batch semantics.
 
-### 4. Evaluate an adapter
+### 5. Evaluate an adapter
 
 `scripts/run_adapter_eval_suite.py` is the simplest unified entry point. It runs secret/code suffix reconstruction, retain and held-out reconstruction, then HumanEval + ForgetEval + UtilityEval through the modified EvalPlus package.
 
@@ -146,3 +186,25 @@ For suffix reconstruction, pass@k uses the **highest** target similarity among t
 
 
 This repository builds on [OpenUnlearning](./open-unlearning/README.md) and [EvalPlus](./evalplus/README.md). Their own citation and license information is retained in the corresponding directories.
+
+## Updating a subrepository
+
+Make and publish child changes from inside that repository, then record the new
+commit in the top-level repository:
+
+```bash
+cd evalplus
+git switch main
+git add <files>
+git commit -m "Describe the EvalPlus change"
+git push
+cd ..
+
+git add evalplus
+git commit -m "Update evalplus submodule"
+git push
+```
+
+To pull the revisions already pinned by the top-level repository, use
+`git submodule update --init --recursive`. Do not use `git submodule update --remote`
+for a reproducible experiment checkout, because that selects newer unpinned commits.

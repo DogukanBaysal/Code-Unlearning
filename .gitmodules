@@ -1,0 +1,9 @@
+[submodule "open-unlearning"]
+	path = open-unlearning
+	url = ../open-unlearning.git
+[submodule "evalplus"]
+	path = evalplus
+	url = ../evalplus.git
+[submodule "UnlearningEvaluation"]
+	path = UnlearningEvaluation
+	url = ../UnlearningEvaluation.git
