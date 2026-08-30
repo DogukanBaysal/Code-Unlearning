@@ -21,6 +21,8 @@ cd "${REPO_ROOT}"
 HUB_NAMESPACE="${HUB_NAMESPACE:-dbaysal}"
 ADAPTER_PREFIX="${ADAPTER_PREFIX:-new-}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-${REPO_ROOT}/Results/new_secret_npo_kl_eval_suite}"
+NUM_EPOCHS=3
+GPU_DISPATCH_POLL_SECONDS="${GPU_DISPATCH_POLL_SECONDS:-1}"
 
 model_specs=(
     "qwen2_5_coder_3b|Qwen/Qwen2.5-Coder-3B"
@@ -69,14 +71,14 @@ if [[ "${#gpu_ids[@]}" -eq 0 ]]; then
     exit 1
 fi
 
-jobs=()
+adapter_jobs=()
 for model_spec in "${model_specs[@]}"; do
     IFS="|" read -r model_key base_model <<< "${model_spec}"
     for variant in "${secret_variants[@]}"; do
         IFS="|" read -r variant_name adapter_suffix <<< "${variant}"
-        jobs+=("secret|${model_key}|${base_model}|${variant_name}|${adapter_suffix}")
+        adapter_jobs+=("secret|${model_key}|${base_model}|${variant_name}|${adapter_suffix}")
     done
-    jobs+=("code-unit|${model_key}|${base_model}|standard|")
+    adapter_jobs+=("code-unit|${model_key}|${base_model}|standard|")
 done
 
 run_eval_job() {
@@ -86,7 +88,8 @@ run_eval_job() {
     local base_model="$4"
     local variant_name="$5"
     local adapter_suffix="$6"
-    shift 6
+    local epoch_index="$7"
+    shift 7
 
     local peft_name
     local output_root
@@ -108,7 +111,7 @@ run_eval_job() {
     fi
 
     echo
-    echo "GPU ${gpu_id}: task=${task}, model=${model_key}, method=npo_kl, variant=${variant_name}"
+    echo "GPU ${gpu_id}: epoch=${epoch_index}, task=${task}, model=${model_key}, method=npo_kl, variant=${variant_name}"
     echo "GPU ${gpu_id}: base_model=${base_model}"
     echo "GPU ${gpu_id}: peft_name=${peft_name}"
     echo "GPU ${gpu_id}: output_root=${output_root}"
@@ -117,8 +120,10 @@ run_eval_job() {
         --model "${base_model}" \
         --peft-names "${peft_name}" \
         --discover-checkpoints \
-        --num-checkpoints 3 \
+        --num-checkpoints "${NUM_EPOCHS}" \
+        --checkpoint-index "${epoch_index}" \
         --alias-checkpoints-as-epochs \
+        --checkpoint-alias-start "${epoch_index}" \
         --output-root "${output_root}" \
         --forget-dataset "dbaysal/forget" \
         --forget-prefix-column "${forget_prefix_column}" \
@@ -142,43 +147,83 @@ run_eval_job() {
         "$@"
 }
 
-run_worker() {
-    local worker_index="$1"
-    local gpu_id="$2"
-    shift 2
-
-    local job_index
-    for ((job_index = worker_index; job_index < ${#jobs[@]}; job_index += ${#gpu_ids[@]})); do
-        local task
-        local model_key
-        local base_model
-        local variant_name
-        local adapter_suffix
-        IFS="|" read -r task model_key base_model variant_name adapter_suffix <<< "${jobs[${job_index}]}"
-        run_eval_job "${gpu_id}" "${task}" "${model_key}" "${base_model}" "${variant_name}" "${adapter_suffix}" "$@"
-    done
-}
-
 echo "Detected ${#gpu_ids[@]} GPU worker(s): ${gpu_ids[*]}"
-echo "Queued ${#jobs[@]} new- NPO+KL adapter evaluation jobs (8 Secret, 2 Code-unit)."
+total_jobs=$((${#adapter_jobs[@]} * NUM_EPOCHS))
+echo "Queued ${total_jobs} epoch-specific evaluation jobs in one global queue."
+echo "Schedule: epoch order is preserved, but there are no barriers between epochs."
+echo "GPU assignment: dynamic; each completed GPU receives the next waiting job."
 
 log_dir="${OUTPUT_ROOT}/logs"
 mkdir -p "${log_dir}"
 
-pids=()
 for worker_index in "${!gpu_ids[@]}"; do
     gpu_id="${gpu_ids[${worker_index}]}"
     log_file="${log_dir}/gpu-${gpu_id}.txt"
     echo "GPU ${gpu_id} log: ${log_file}"
-    run_worker "${worker_index}" "${gpu_id}" "$@" > "${log_file}" 2>&1 &
-    pids+=("$!")
+    : > "${log_file}"
 done
 
 status=0
-for pid in "${pids[@]}"; do
-    if ! wait "${pid}"; then
-        status=1
+gpu_pids=()
+gpu_job_indices=()
+next_job_index=0
+running_jobs=0
+
+while [[ "${running_jobs}" -gt 0 \
+    || ("${status}" -eq 0 && "${next_job_index}" -lt "${total_jobs}") ]]; do
+    dispatcher_progress=0
+
+    for gpu_slot in "${!gpu_ids[@]}"; do
+        gpu_id="${gpu_ids[${gpu_slot}]}"
+
+        if [[ -n "${gpu_pids[${gpu_slot}]:-}" ]] \
+            && ! kill -0 "${gpu_pids[${gpu_slot}]}" 2>/dev/null; then
+            finished_job_index="${gpu_job_indices[${gpu_slot}]}"
+            if ! wait "${gpu_pids[${gpu_slot}]}"; then
+                echo "Job $((finished_job_index + 1))/${total_jobs} failed on GPU ${gpu_id}." >&2
+                status=1
+            fi
+            unset 'gpu_pids[gpu_slot]'
+            unset 'gpu_job_indices[gpu_slot]'
+            running_jobs=$((running_jobs - 1))
+            dispatcher_progress=1
+        fi
+
+        if [[ -z "${gpu_pids[${gpu_slot}]:-}" \
+            && "${next_job_index}" -lt "${total_jobs}" \
+            && "${status}" -eq 0 ]]; then
+            epoch_index=$((next_job_index / ${#adapter_jobs[@]} + 1))
+            adapter_job_index=$((next_job_index % ${#adapter_jobs[@]}))
+            IFS="|" read -r task model_key base_model variant_name adapter_suffix \
+                <<< "${adapter_jobs[${adapter_job_index}]}"
+            log_file="${log_dir}/gpu-${gpu_id}.txt"
+            echo "Assigning job $((next_job_index + 1))/${total_jobs} to GPU ${gpu_id} (epoch ${epoch_index}, ${task}, ${model_key}, ${variant_name})."
+            run_eval_job \
+                "${gpu_id}" \
+                "${task}" \
+                "${model_key}" \
+                "${base_model}" \
+                "${variant_name}" \
+                "${adapter_suffix}" \
+                "${epoch_index}" \
+                "$@" >> "${log_file}" 2>&1 &
+            gpu_pids[${gpu_slot}]="$!"
+            gpu_job_indices[${gpu_slot}]="${next_job_index}"
+            next_job_index=$((next_job_index + 1))
+            running_jobs=$((running_jobs + 1))
+            dispatcher_progress=1
+        fi
+    done
+
+    if [[ "${running_jobs}" -gt 0 && "${dispatcher_progress}" -eq 0 ]]; then
+        sleep "${GPU_DISPATCH_POLL_SECONDS}"
     fi
 done
+
+if [[ "${status}" -eq 0 ]]; then
+    echo "Completed all ${total_jobs} evaluation jobs."
+else
+    echo "A job failed; remaining queued jobs were not started." >&2
+fi
 
 exit "${status}"

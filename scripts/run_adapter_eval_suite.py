@@ -78,6 +78,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Select the first or last N discovered checkpoint subfolders.",
     )
     parser.add_argument(
+        "--checkpoint-index",
+        type=int,
+        default=None,
+        help=(
+            "Evaluate only the checkpoint at this 1-based position in the resolved "
+            "checkpoint list."
+        ),
+    )
+    parser.add_argument(
         "--alias-checkpoints-as-epochs",
         action="store_true",
         help="Use epoch-1, epoch-2, ... in evaluation output paths instead of checkpoint names.",
@@ -315,32 +324,41 @@ def discover_hf_checkpoints(repo_id: str) -> list[str]:
 
 def resolve_checkpoints(args: argparse.Namespace, peft_name: str) -> list[str]:
     if args.checkpoints:
-        return list(args.checkpoints)
+        checkpoints = list(args.checkpoints)
+    elif not args.discover_checkpoints:
+        checkpoints = list(DEFAULT_CHECKPOINTS)
+    else:
+        if not args.all_checkpoints and args.num_checkpoints <= 0:
+            raise ValueError("--num-checkpoints must be greater than 0")
 
-    if not args.discover_checkpoints:
-        return list(DEFAULT_CHECKPOINTS)
-
-    if not args.all_checkpoints and args.num_checkpoints <= 0:
-        raise ValueError("--num-checkpoints must be greater than 0")
-
-    checkpoints = discover_local_checkpoints(Path(peft_name).expanduser())
-    if not checkpoints:
-        checkpoints = discover_hf_checkpoints(peft_name)
-
-    if args.all_checkpoints:
+        checkpoints = discover_local_checkpoints(Path(peft_name).expanduser())
         if not checkpoints:
-            raise RuntimeError(f"Found no checkpoint folders for {peft_name!r}")
-        return checkpoints
+            checkpoints = discover_hf_checkpoints(peft_name)
 
-    if len(checkpoints) < args.num_checkpoints:
-        raise RuntimeError(
-            f"Found only {len(checkpoints)} checkpoint folder(s) for {peft_name!r}; "
-            f"need {args.num_checkpoints}. Pass --checkpoints explicitly if discovery "
-            "is unavailable or the repo uses non-standard folder names."
-        )
-    if args.checkpoint_selection == "last":
-        return checkpoints[-args.num_checkpoints :]
-    return checkpoints[: args.num_checkpoints]
+        if args.all_checkpoints:
+            if not checkpoints:
+                raise RuntimeError(f"Found no checkpoint folders for {peft_name!r}")
+        else:
+            if len(checkpoints) < args.num_checkpoints:
+                raise RuntimeError(
+                    f"Found only {len(checkpoints)} checkpoint folder(s) for {peft_name!r}; "
+                    f"need {args.num_checkpoints}. Pass --checkpoints explicitly if discovery "
+                    "is unavailable or the repo uses non-standard folder names."
+                )
+            if args.checkpoint_selection == "last":
+                checkpoints = checkpoints[-args.num_checkpoints :]
+            else:
+                checkpoints = checkpoints[: args.num_checkpoints]
+
+    if args.checkpoint_index is not None:
+        if args.checkpoint_index > len(checkpoints):
+            raise RuntimeError(
+                f"Checkpoint index {args.checkpoint_index} is out of range for "
+                f"{peft_name!r}; resolved {len(checkpoints)} checkpoint(s)."
+            )
+        return [checkpoints[args.checkpoint_index - 1]]
+
+    return checkpoints
 
 
 def checkpoint_output_name(checkpoint: str, index: int, alias_as_epochs: bool) -> str:
@@ -448,6 +466,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.checkpoint_alias_start <= 0:
         parser.error("--checkpoint-alias-start must be greater than 0")
+    if args.checkpoint_index is not None and args.checkpoint_index <= 0:
+        parser.error("--checkpoint-index must be greater than 0")
     if args.all_checkpoints and args.checkpoints:
         parser.error("--all-checkpoints cannot be combined with --checkpoints")
     if args.all_checkpoints and not args.discover_checkpoints:
@@ -633,6 +653,15 @@ def main() -> int:
     if checkpoint_manifest:
         manifest_path = output_root / "checkpoint_manifest.json"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        if manifest_path.exists():
+            try:
+                with manifest_path.open(encoding="utf-8") as handle:
+                    existing_manifest = json.load(handle)
+                for peft_name, aliases in checkpoint_manifest.items():
+                    existing_manifest.setdefault(peft_name, {}).update(aliases)
+                checkpoint_manifest = existing_manifest
+            except (OSError, json.JSONDecodeError, AttributeError):
+                pass
         with manifest_path.open("w", encoding="utf-8") as handle:
             json.dump(checkpoint_manifest, handle, indent=2, sort_keys=True)
 
