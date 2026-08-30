@@ -93,8 +93,9 @@ bash scripts/setup_environment.sh
 source .venv/bin/activate
 ```
 
-Use `--with-flash-attn` when supported. Fine-tuning additionally requires Axolotl; see
-the [fine-tuning guide](./Fine-tuning/README.md).
+The setup uses [`requirements.lock`](./requirements.lock), resolved for Linux and
+Python 3.11. Use `--with-flash-attn` when supported. Fine-tuning additionally requires
+Axolotl; see the [fine-tuning guide](./Fine-tuning/README.md).
 
 ### 4. Run the experiments
 
@@ -128,3 +129,9 @@ Each workflow completes unlearning before evaluation and evaluates all saved epo
 Run the secret workflow before the RQ3 workflow because its standard setting is the
 random-order, equal-size-retain baseline. See the [script guide](./scripts/README.md)
 for phase controls, local-only runs, smaller smoke tests, and evaluation options.
+
+## Citation and license
+
+If you use this replication package or MOCHI, cite the master's thesis using
+[`CITATION.cff`](./CITATION.cff). The top-level repository is released under the
+[MIT License](./LICENSE); the three subrepositories retain their own licenses.

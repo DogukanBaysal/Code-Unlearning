@@ -1,0 +1,7 @@
+# Direct inputs for the Linux/Python 3.11 thesis environment.
+-e ./open-unlearning[lm-eval]
+-e ./evalplus[peft]
+-r ./UnlearningEvaluation/requirements.txt
+
+# Test runner used by the repository CI workflow.
+pytest==8.3.5

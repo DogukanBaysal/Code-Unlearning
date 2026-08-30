@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: >-
+  If you use this replication package or the MOCHI benchmark, please cite the
+  master's thesis below.
+title: "Code-Unlearning: Replication Package for Forgetting by Design"
+type: software
+authors:
+  - family-names: Baysal
+    given-names: Dogukan
+repository-code: "https://github.com/DogukanBaysal/Code-Unlearning"
+url: "https://github.com/DogukanBaysal/Code-Unlearning"
+license: MIT
+date-released: 2026-08-30
+abstract: >-
+  Replication package and MOCHI benchmark for studying trade-offs among forget
+  quality, retained coding utility, and energy consumption in machine
+  unlearning for LLM code generation.
+keywords:
+  - machine unlearning
+  - code generation
+  - large language models
+  - MOCHI
+preferred-citation:
+  type: thesis
+  authors:
+    - family-names: Baysal
+      given-names: Dogukan
+  title: "Forgetting by Design: Trade-offs in Machine Unlearning for LLM Code Generation"
+  institution:
+    name: University of Zurich
+  year: 2026

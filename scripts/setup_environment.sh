@@ -13,7 +13,7 @@ usage() {
 Usage: bash scripts/setup_environment.sh [options]
 
 Create one virtual environment for the complete thesis workflow and install all
-three subrepositories in it.
+three subrepositories from the pinned top-level requirements.lock file.
 
 Options:
   --python PATH          Python interpreter to use (default: python3.11)
@@ -70,9 +70,16 @@ done
 source "${VENV_PATH}/bin/activate"
 
 python -m pip install --upgrade pip
-python -m pip install -e "${REPO_ROOT}/open-unlearning[lm-eval]"
-python -m pip install -r "${REPO_ROOT}/UnlearningEvaluation/requirements.txt"
-python -m pip install -e "${REPO_ROOT}/evalplus[peft]"
+if [[ -f "${REPO_ROOT}/requirements.lock" ]]; then
+    (
+        cd "${REPO_ROOT}"
+        python -m pip install -r requirements.lock
+    )
+else
+    python -m pip install -e "${REPO_ROOT}/open-unlearning[lm-eval]"
+    python -m pip install -r "${REPO_ROOT}/UnlearningEvaluation/requirements.txt"
+    python -m pip install -e "${REPO_ROOT}/evalplus[peft]"
+fi
 
 if [[ "${WITH_FLASH_ATTN}" -eq 1 ]]; then
     python -m pip install --no-build-isolation flash-attn==2.6.3

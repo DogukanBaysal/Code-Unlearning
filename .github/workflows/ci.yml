@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install validation tools
+        run: python -m pip install cffconvert==2.0.0 PyYAML==6.0.3 uv==0.11.2
+
+      - name: Validate citation metadata
+        run: cffconvert --validate
+
+      - name: Check generated dependency lock
+        run: |
+          uv pip compile requirements.in \
+            --python-version 3.11 \
+            --python-platform x86_64-manylinux_2_31 \
+            --output-file requirements.lock
+          git diff --exit-code -- requirements.lock
+
+      - name: Reject generated artifacts
+        run: |
+          if git ls-files | grep -E '(^|/)\.DS_Store$|^Results/'; then
+            echo "Generated artifacts must not be tracked."
+            exit 1
+          fi
+
+      - name: Validate shell and Python syntax
+        run: |
+          for shell_file in scripts/*.sh scripts/lib/*.bash; do
+            bash -n "$shell_file"
+          done
+          python -m compileall -q scripts Dataset UnlearningEvaluation
+
+      - name: Exercise workflow dry-runs
+        env:
+          HUB_ADAPTER_ENABLED: "false"
+        run: |
+          bash scripts/run_secret_experiments.sh --dry-run > /dev/null
+          bash scripts/run_code_unit_experiments.sh --dry-run > /dev/null
+          bash scripts/run_ordering_retain_experiments.sh --dry-run > /dev/null
+
+  unit-tests:
+    needs: repository-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install locked environment
+        run: |
+          python -m pip install uv==0.11.2
+          uv venv --python 3.11 .venv
+          uv pip sync --python .venv/bin/python requirements.lock
+
+      - name: Run unit tests
+        run: |
+          .venv/bin/python -m pytest -q evalplus/tests
+          .venv/bin/python -m pytest -q open-unlearning/tests
