@@ -1,5 +1,9 @@
 # Forgetting by Design: Trade-offs in Machine Unlearning for LLM Code Generation
 
+<p align="center">
+  <img src="./images/pipeline.png" alt="Overview of the unlearning pipeline: fine-tune on the synthetic dataset with injected secrets, unlearn using the forget and retain sets, then evaluate forget quality, utility retention, and resource consumption." width="100%">
+</p>
+
 This repository is the replication package for the master's thesis
 [*Forgetting by Design: Trade-offs in Machine Unlearning for LLM Code Generation*](<./Forgetting by Design.pdf>).
 It studies whether post-training machine unlearning can remove memorized secrets or
