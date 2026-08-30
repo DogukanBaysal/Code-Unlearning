@@ -1,18 +1,27 @@
-# Datasets and curation
+# MOCHI benchmark datasets and curation
 
-This directory contains the validation and curation utilities behind the synthetic dataset used in the thesis. The final dataset rows are hosted on Hugging Face and are not duplicated in this repository.
+This directory contains the released validation and curation artifacts for **MOCHI
+(Machine Unlearning of Code with Hidden Information)**, the benchmark introduced in
+*Forgetting by Design*. MOCHI provides controlled, fine-tuning-only knowledge for
+studying whether a model can forget localized secrets as well as complete functions and
+classes while preserving unrelated coding capabilities. The final dataset rows are hosted
+on Hugging Face and are not duplicated in this repository.
 
-## Final thesis dataset
+## Benchmark composition and Hub datasets
 
-The dataset contains 600 synthetic Python functions and classes. Randomized identifiers and multiple similarity checks reduce the chance that the exact code already appeared in model pretraining.
+MOCHI contains 600 synthetic Python code units, divided equally between functions and
+classes. Randomized identifiers and lexical, structural, and semantic similarity checks
+reduce contamination and the chance that an exact unit already appeared in model
+pretraining. Its four disjoint components isolate the unlearning target, retention signal,
+fine-tuned utility, and held-out in-domain behavior.
 
 | Thesis component | Size | Hugging Face reference used by the code | Main use |
 | --- | ---: | --- | --- |
 | Full repeated training corpus | 1,800 | `dbaysal/all-contentx3` | Axolotl fine-tuning; each of 600 units occurs three times |
 | Full unique corpus | 600 | `dbaysal/all-content` | Syntax, difficulty, lexical, structural, and semantic audits |
-| Forget | 150 | `dbaysal/forget` | Secret and code-unit unlearning |
-| Equal-size retain subset | 150 | `dbaysal/retain-half` | Default retain objective |
-| Full retain set | 300 | `dbaysal/retain-full` | Double-retain ablation |
+| Forget | 150 | `dbaysal/forget` | RQ1 secret and RQ2 code-unit unlearning |
+| Equal-size retain subset | 150 | `dbaysal/retain-half` | Default retention signal and RQ3 baseline |
+| Full retain set | 300 | `dbaysal/retain-full` | RQ3 double-retain ablation |
 | Held-out / approximate | 50 | `dbaysal/approximate` | In-domain suffix retention |
 | Forget functional tests | 150 tasks before baseline filtering | `dbaysal/ForgetEval` | Functionality surrounding an injected secret |
 | General fine-tuned utility tests | 100 | `dbaysal/UtilityEval` | Functionality acquired during fine-tuning |
@@ -20,7 +29,7 @@ The dataset contains 600 synthetic Python functions and classes. Randomized iden
 Availability and access permissions for these resources are controlled on Hugging Face. Set `HF_TOKEN` in the environment when authentication is required.
 
 
-## Dataset composition
+## MOCHI composition
 
 | Component | Functions | Classes | Total |
 | --- | ---: | ---: | ---: |
@@ -49,5 +58,4 @@ The final corpus was checked along four axes:
 4. **Semantic diversity:** mean-centered cosine similarity is computed with `Salesforce/SFR-Embedding-Code-400M_R` and `Qodo/Qodo-Embed-1-1.5B` to reduce embedding-space anisotropy.
 
 The checked-in final reports cover all 179,700 unordered pairs. The maximum direction-averaged CodeBLEU is about `0.555`, and the maximum token Jaccard similarity is about `0.534`, both below the `0.60` threshold. See the [synthetic-data guide](./Synthetic/README.md) for exact commands and report locations.
-
 

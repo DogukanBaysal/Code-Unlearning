@@ -192,7 +192,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--suffix-bs",
         type=int,
-        default=32,
+        default=8,
         help="Batch size for suffix evaluations.",
     )
     parser.add_argument(
@@ -219,7 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--evalplus-bs",
         type=int,
-        default=128,
+        default=8,
         help="Number of EvalPlus problems generated together.",
     )
     parser.add_argument(
@@ -235,6 +235,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--evalplus-dataset",
         default="humaneval-forget-utility",
         help="EvalPlus dataset or alias to run.",
+    )
+    parser.add_argument(
+        "--evalplus-baseline-filter-csv",
+        default=None,
+        help=(
+            "Optional CSV of baseline-failed ForgetEval/UtilityEval test IDs. "
+            "When set, write a filtered EvalPlus result beside the raw result."
+        ),
     )
     parser.add_argument(
         "--backend",
@@ -485,6 +493,16 @@ def main() -> int:
     if not 0 < args.top_p <= 1:
         parser.error("--top-p must be in the range (0, 1]")
     extra_evalplus_args = normalize_extra_evalplus_args(args.extra_evalplus_args)
+    evalplus_baseline_filter_csv: Path | None = None
+    if args.evalplus_baseline_filter_csv:
+        evalplus_baseline_filter_csv = (
+            Path(args.evalplus_baseline_filter_csv).expanduser().resolve()
+        )
+        if not evalplus_baseline_filter_csv.is_file():
+            parser.error(
+                "--evalplus-baseline-filter-csv was not found: "
+                f"{evalplus_baseline_filter_csv}"
+            )
 
     if args.list_checkpoints_only:
         if len(args.peft_names) != 1:
@@ -649,6 +667,29 @@ def main() -> int:
                     failures.append((command_name, return_code))
                     if not args.continue_on_error:
                         return return_code
+                elif evalplus_baseline_filter_csv is not None:
+                    command_name = (
+                        f"{peft_name} / {checkpoint} / evalplus baseline filter"
+                    )
+                    return_code = run_command(
+                        [
+                            sys.executable,
+                            str(
+                                EVALPLUS_DIR
+                                / "tools"
+                                / "filter_baseline_failed_results.py"
+                            ),
+                            str(evalplus_result_path),
+                            "--filter-csv",
+                            str(evalplus_baseline_filter_csv),
+                        ],
+                        cwd=REPO_ROOT,
+                        dry_run=args.dry_run,
+                    )
+                    if return_code != 0:
+                        failures.append((command_name, return_code))
+                        if not args.continue_on_error:
+                            return return_code
 
     if checkpoint_manifest:
         manifest_path = output_root / "checkpoint_manifest.json"

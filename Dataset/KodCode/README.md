@@ -1,6 +1,6 @@
 # KodCode exploratory pipeline
 
-This directory contains an earlier dataset exploration based on `KodCode/KodCode-V1`. It is useful as a record of filtering, validation, embedding, and clustering work, but it is **not** the final synthetic dataset used for the thesis results. See [`../Synthetic/README.md`](../Synthetic/README.md) for the reported study pipeline.
+This directory contains an earlier dataset exploration based on `KodCode/KodCode-V1`. It is useful as a record of filtering, validation, embedding, and clustering work, but it is **not part of MOCHI** and is not used for the thesis results. See [`../Synthetic/README.md`](../Synthetic/README.md) for the released MOCHI validation and test-hardening pipeline.
 
 The scripts are numbered in execution order.
 
@@ -59,7 +59,6 @@ It expects the files produced by stage 3 and writes its CSV, plots, assignments,
 ```bash
 python 04_clustering.py
 ```
-
 
 
 

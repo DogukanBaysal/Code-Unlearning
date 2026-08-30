@@ -1,6 +1,12 @@
-# Synthetic dataset validation
+# MOCHI validation and test hardening
 
-This directory contains the audit and test-hardening stages for the final 600-item synthetic corpus used in the thesis. It does **not** contain the code-generation pipeline itself; the scripts load the resulting datasets from Hugging Face.
+This directory contains the audit and test-hardening stages for **MOCHI (Machine
+Unlearning of Code with Hidden Information)**, the final 600-item benchmark introduced
+in the thesis. The checks make the secret and whole-code-unit unlearning comparisons
+interpretable by validating Python syntax and complexity, limiting cross-split
+similarity, and strengthening the ForgetEval and UtilityEval test suites with mutation
+testing. It does **not** contain the original code-generation pipeline; the scripts load
+the resulting datasets from Hugging Face.
 
 Run the commands below from `Dataset/Synthetic/` unless otherwise noted.
 
@@ -125,5 +131,4 @@ python run_mutation_testing.py \
   --output Mutation/UtilityEval \
   --run-id baseline
 ```
-
 
