@@ -6,7 +6,7 @@ It studies whether post-training machine unlearning can remove memorized secrets
 source code without retraining a model from scratch or destroying the coding behavior
 that should remain.
 
-## Thesis in brief
+## Thesis
 
 ### Motivation
 
